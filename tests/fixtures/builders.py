@@ -133,10 +133,11 @@ def build_pdf(
             next_num += 1
             with Image.open(io.BytesIO(page.jpeg)) as img:
                 w, h = img.size
+                colorspace = b"/DeviceGray" if img.mode == "L" else b"/DeviceRGB"
             objects[image_num] = stream(
                 image_num,
                 b"/Type /XObject /Subtype /Image /Width %d /Height %d "
-                b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode" % (w, h),
+                b"/ColorSpace %s /BitsPerComponent 8 /Filter /DCTDecode" % (w, h, colorspace),
                 page.jpeg,
             )
             image_name = b"Im1"

@@ -74,37 +74,69 @@ Known limitations, tracked as open decisions: parsing happens in-process (OD-12)
 synchronous (ADR-0012); rotated-page coordinate reconciliation (OD-14). No real-world or
 Indic-language documents have been tested; fixtures are synthetic.
 
-## Phase 3: Persistence, jobs, containers and authentication (next)
+## Phase 3: Image preprocessing and quality assessment (**complete**, 2026-10-22)
 
-PostgreSQL schema + Alembic migrations (documents, pages, audit events); Valkey + Celery
-worker. Ingestion processing moves to idempotent tasks keyed on `(document_id, stage,
-input_hash)`, and parsing runs in the worker under resource limits (OD-12). Docker Compose
-for api/worker/postgres/valkey on an internal network; readiness checks for DB and broker;
-API authentication (OD-6).
+Redefined by the project owner on 2026-10-22. Persistence, jobs and containers move to Phase 4.
+
+- [x] Image loading and normalisation: Phase 2 loader plus greyscale conversion; DPI
+      sanity check (ADR-0017).
+- [x] Rotation (text-line axis) and skew detection by projection profiles; 180° ambiguity
+      deferred to OCR (ADR-0016).
+- [x] Configurable denoising (median/bilateral/NL-means) and contrast enhancement
+      (stretch + CLAHE); illumination flattening.
+- [x] Optional adaptive thresholding (`binarize` profile only).
+- [x] Detection of low resolution, unknown resolution, blur, blank pages, poor contrast,
+      noise (Gaussian and salt-and-pepper), uneven background, skew and rotation.
+- [x] Source page images preserved; per-profile outputs stored separately (ADR-0018).
+- [x] Profiles (`none`, `standard`, `degraded_scan`, `photo`, `binarize`, custom), with
+      flag-driven enhancement in the default profile.
+- [x] Every decision, parameter and timing recorded per page and step in `run.json`.
+- [x] OpenCV supply decision (ADR-0015) with a production startup guard.
+
+Acceptance evidence (2026-10-22):
+
+| Criterion | Evidence |
+|---|---|
+| Tests cover rotated, skewed, noisy and low-contrast samples | `test_geometry.py` (8 skew angles, 4 quarter turns, degraded upscaled JPEG, non-text), `test_quality.py` (each flag raised by its degradation and not by mild variants), `test_filters.py`, `test_preprocessing_pipeline.py` (rotated 90/270 + skew, skewed, noisy, faded, shadowed, blank), API tests on a skewed scanned PDF and a noisy PNG |
+| Preprocessing does not silently replace the source | `test_source_image_is_never_modified` (array equality), `test_source_page_is_preserved_across_reruns` (source PNG sha256 unchanged across three runs; profiles stored side by side) |
+| Quality flags are recorded | `quality` on every image page in the manifest; `quality_flags_before` / `quality_after` per page in each run; tests assert flags clear after correction |
+| Performance is measured on CPU | docs/PERFORMANCE.md: per-stage, per-step and end-to-end timings at 300 DPI with 4 threads and 1 thread; `make bench` reproduces them. Measured optimisations cut end-to-end time from 1.9 to 1.2 s/page |
+
+221 tests passing, 98% coverage; `make check` exit 0.
+
+Limitations: thresholds are calibrated on synthetic pages only, and all timings come from a
+laptop CPU, not the target server. Real-scan calibration happens in Phase 5 with the
+evaluation set.
+
+## Phase 4: Persistence, jobs, containers and authentication (next)
+
+PostgreSQL schema + Alembic migrations (documents, pages, preprocessing runs, audit events);
+Valkey + Celery workers. Ingestion and preprocessing move to idempotent tasks keyed on
+`(document_id, stage, input_hash)`, and parsing runs in workers under resource limits
+(OD-12), with `NGOCR_OPENCV_THREADS=1` per worker. Docker Compose for
+api/worker/postgres/valkey on an internal network, with the **minimal source-built OpenCV
+wheel** (ADR-0015) in the images. Readiness checks for DB and broker; API authentication
+(OD-6).
 
 Acceptance: compose stack starts from scratch; migrations apply and roll back on an empty DB;
-upload returns 202 and the job completes with the same manifest as Phase 2; retries do not
+upload returns 202 and the job produces the same manifest and run as Phase 3; retries do not
 duplicate artefacts; integration tests against real Postgres and Valkey; container image
-scan clean (OD-5).
-
-## Phase 4: Image quality assessment and preprocessing
-
-Quality metrics (blur, contrast, skew, resolution, noise); deskew, denoise, binarisation and
-orientation detection with OpenCV. Acceptance: unit tests on synthetic fixtures for each
-transform; metrics validated against labelled samples.
+scan clean (OD-5); production-mode startup succeeds with the minimal OpenCV build.
 
 ## Phase 5: OCR engines and evaluation harness
 
 `OcrEngine` protocol; Tesseract adapter (baseline); PaddleOCR adapter (CPU) with explicit
-local model paths and runtime downloads disabled; MODEL_INVENTORY entries with hashes and
-license review; evaluation harness (CER/WER) and first per-language measurements on a
-curated, licensed test set. **Stop point:** any model with an unclear license is reported
-before use.
+local model paths and runtime downloads disabled; resolve the 0/180° orientation ambiguity
+(ADR-0016); MODEL_INVENTORY entries with hashes and license review; evaluation harness
+(CER/WER) and first per-language measurements on a curated, licensed test set; re-tune
+quality thresholds and profiles against OCR accuracy. **Stop point:** any model with an
+unclear license is reported before use.
 
 ## Phase 6: Classification and layout
 
 Document type classification, language/script detection, reading order, multi-column
-handling, table structure reconstruction, key-value detection.
+handling, table structure reconstruction, key-value detection; rotated-page coordinate
+reconciliation (OD-14).
 
 ## Phase 7: Extraction, validation and export
 
@@ -115,7 +147,7 @@ evidence.
 ## Phase 8: Human review UI
 
 React + TypeScript review application served locally (no CDN assets): queue, page viewer with
-bounding-box overlays, field correction, audit trail.
+bounding-box overlays, source vs preprocessed comparison, field correction, audit trail.
 
 ## Phase 9: Handwriting recognition
 
@@ -125,5 +157,5 @@ Languages without a viable model are documented as unsupported, not approximated
 ## Phase 10: Offline deployment and hardening
 
 Offline bundle (wheels, images, models, SBOM, hashes); host-level egress blocking verified by
-test; backups/restore drill; operations runbook; throughput benchmarks against the
-100–10,000 pages/day target on the reference CPU server.
+test; backups/restore drill; storage retention (OD-16); operations runbook; throughput
+benchmarks against the 100–10,000 pages/day target on the reference CPU server.

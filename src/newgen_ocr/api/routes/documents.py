@@ -8,11 +8,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, File, Path, Request, UploadFile
+from fastapi import APIRouter, File, Form, Path, Request, UploadFile
 from fastapi.responses import FileResponse
 
+from newgen_ocr.config import Settings
 from newgen_ocr.ingestion.models import DocumentManifest, PageText
 from newgen_ocr.ingestion.service import IngestionService, UploadInfo
+from newgen_ocr.preprocessing.service import PreprocessingService
 from newgen_ocr.storage.local import DocumentStore
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
@@ -26,17 +28,36 @@ def _service(request: Request) -> IngestionService:
     return service
 
 
+def _preprocessing(request: Request) -> PreprocessingService:
+    service: PreprocessingService = request.app.state.preprocessing
+    return service
+
+
 def _store(request: Request) -> DocumentStore:
     store: DocumentStore = request.app.state.store
     return store
 
 
 @router.post("", status_code=201, response_model=DocumentManifest)
-def upload_document(request: Request, file: Annotated[UploadFile, File()]) -> DocumentManifest:
-    """Upload one PDF, JPEG, PNG or TIFF file. Returns the document manifest."""
-    return _service(request).ingest(
+def upload_document(
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    profile: Annotated[str | None, Form(max_length=32)] = None,
+) -> DocumentManifest:
+    """Upload one PDF, JPEG, PNG or TIFF file. Returns the document manifest.
+
+    Pages are then preprocessed with ``profile`` (default: the configured default profile);
+    fetch the result from ``/api/v1/documents/{id}/preprocessing/{profile}``.
+    """
+    settings: Settings = request.app.state.settings
+    preprocessing = _preprocessing(request)
+    # Validate the profile before storing anything.
+    selected = preprocessing.profile(profile or settings.default_preprocessing_profile)
+    manifest = _service(request).ingest(
         file.file, UploadInfo(filename=file.filename, content_type=file.content_type)
     )
+    preprocessing.run_after_ingest(manifest.document_id, selected.name)
+    return manifest
 
 
 @router.get("/{document_id}", response_model=DocumentManifest)

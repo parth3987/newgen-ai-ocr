@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Generated from `scripts/check_licenses.py` against `requirements.lock` on 2026-10-22.
+Generated from `scripts/check_licenses.py` against `requirements.lock` on 2026-10-22 (Phase 3: 21 runtime packages).
 Update this file whenever a lock file changes.
 
 ## Runtime (shipped)
@@ -14,6 +14,8 @@ Update this file whenever a lock file changes.
 | fastapi | 0.143.0 | MIT |
 | h11 | 0.16.0 | MIT |
 | idna | 3.20 | BSD-3-Clause |
+| numpy | 2.4.6 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 (reviewed) |
+| opencv-python-headless | 4.14.0.94 | Apache-2.0, plus bundled libraries (below). **Development only** (ADR-0015) |
 | opentelemetry-api | 1.45.1 | Apache-2.0 (see ADR-0008) |
 | pillow | 13.0.0 | MIT-CMU (security override, see ADR-0007) |
 | pydantic | 2.14.0 | MIT |
@@ -51,12 +53,24 @@ in `pypdfium2-5.14.0.dist-info/licenses/`.
 | simdutf, fast_float | MIT / Apache-2.0 |
 | pypdfium2 data files | CC-BY-4.0 (documentation/data only) |
 
-No copyleft licenses are present. **Attribution obligations for distributed products:**
+No copyleft licenses are present in the PDFium bundle. **Attribution obligations for distributed products:**
 - FreeType (FTL): "Portions of this software are copyright © The FreeType Project
   (www.freetype.org). All rights reserved."
 - libjpeg-turbo (IJG): "This software is based in part on the work of the Independent JPEG
   Group."
 - ICU / Unicode: include the Unicode license notice.
+
+### opencv-python-headless bundled libraries (development only; reviewed 2026-10-22)
+
+From the wheel's `LICENSE-3RD-PARTY.txt` and `sboms/auditwheel.cdx.json`: FFmpeg
+(libavcodec/avformat/avutil/swscale/swresample, **LGPL-2.1+**), libvpx (BSD-3), libaom
+(BSD-2 + AOM patent licence), dav1d (BSD-2), libavif (BSD-2), OpenSSL `1.1.1k-17.el8_6`
+(OpenSSL/SSLeay; Red Hat/AlmaLinux 8 vendor build), OpenBLAS (BSD-3), libgfortran and
+libquadmath (GPL-3 with the GCC Runtime Library Exception), libpng, zlib, libdrm (MIT),
+plus statically included libjpeg-turbo, libspng, libwebp, QUIRC, Flatbuffers and Protobuf
+(permissive). The LGPL and GPL-with-exception components impose obligations on
+redistribution. This is one reason production uses a minimal source build without them
+(ADR-0015).
 
 ## Development and CI only (not shipped)
 

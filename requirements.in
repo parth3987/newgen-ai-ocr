@@ -9,3 +9,9 @@ pydantic-settings
 pypdfium2
 pillow
 python-multipart
+# Phase 3: image preprocessing and quality assessment.
+# DEVELOPMENT ONLY: the PyPI wheel bundles EOL OpenSSL 1.1.1k and LGPL FFmpeg. Production
+# uses a minimal source-built OpenCV (ADR-0015); the app refuses to start in production
+# with an FFmpeg-enabled cv2. Pinned to 4.x (5.0 is a new major release).
+opencv-python-headless<5
+numpy

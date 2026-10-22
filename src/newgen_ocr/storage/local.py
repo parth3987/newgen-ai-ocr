@@ -7,11 +7,14 @@ Layout under ``data_dir``::
     derived/<document_id>/manifest.json      metadata (written last, atomically)
     derived/<document_id>/pages/0001.png     rendered / normalised page images
     derived/<document_id>/text/0001.json     embedded PDF text with evidence
+    derived/<document_id>/preprocessed/<profile>/run.json        preprocessing record
+    derived/<document_id>/preprocessed/<profile>/pages/0001.png  preprocessed images
     audit/audit.jsonl                        append-only audit events
 
 Originals and derived artefacts live in separate trees. Derived output is built in a
 staging directory and renamed into place, so a document is either fully visible or absent.
-Stored names are generated; client filenames never reach the filesystem.
+Stored names are generated; client filenames never reach the filesystem. Preprocessing
+never overwrites source page images; each profile's run is swapped in atomically.
 """
 
 from __future__ import annotations
@@ -19,16 +22,21 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import threading
 import uuid
 from pathlib import Path
 
+import numpy as np
+import numpy.typing as npt
 from PIL import Image
 
 from newgen_ocr.errors import AppError, ErrorCode
 from newgen_ocr.ingestion.formats import EXTENSIONS, DocumentFormat
 from newgen_ocr.ingestion.models import DocumentManifest, PageText
+from newgen_ocr.preprocessing.models import PreprocessingRun
 
 _DOCUMENT_ID = re.compile(r"^[0-9a-f]{32}$")
+_PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _DIR_MODE = 0o750
 _FILE_MODE = 0o640
 _ORIGINAL_MODE = 0o440
@@ -56,6 +64,17 @@ def _write_atomic(path: Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+# zlib level 3: lossless like every level; measured 43% faster than the default (6) on
+# 300 DPI pages, with equal or smaller files (docs/PERFORMANCE.md).
+PNG_COMPRESS_LEVEL = 3
+
+
+def _write_png(path: Path, image: Image.Image) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _FILE_MODE)
+    with os.fdopen(fd, "wb") as fh:
+        image.save(fh, format="PNG", compress_level=PNG_COMPRESS_LEVEL)
+
+
 class StagedDocument:
     """Derived artefacts under construction; invisible to readers until committed."""
 
@@ -65,10 +84,7 @@ class StagedDocument:
         (root / "text").mkdir(mode=_DIR_MODE)
 
     def write_page_image(self, page_number: int, image: Image.Image) -> None:
-        path = self.root / "pages" / f"{_page_name(page_number)}.png"
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _FILE_MODE)
-        with os.fdopen(fd, "wb") as fh:
-            image.save(fh, format="PNG")
+        _write_png(self.root / "pages" / f"{_page_name(page_number)}.png", image)
 
     def write_page_text(self, text: PageText) -> None:
         path = self.root / "text" / f"{_page_name(text.page_number)}.json"
@@ -78,8 +94,23 @@ class StagedDocument:
         _write_atomic(self.root / "manifest.json", manifest.model_dump_json(indent=2).encode())
 
 
+class StagedRun:
+    """A preprocessing run under construction, inside the document's derived tree."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        (root / "pages").mkdir(mode=_DIR_MODE, parents=True)
+
+    def write_page_image(self, page_number: int, image: npt.NDArray[np.uint8]) -> None:
+        _write_png(self.root / "pages" / f"{_page_name(page_number)}.png", Image.fromarray(image))
+
+    def write_run(self, run: PreprocessingRun) -> None:
+        _write_atomic(self.root / "run.json", run.model_dump_json(indent=2).encode())
+
+
 class DocumentStore:
     def __init__(self, data_dir: Path) -> None:
+        self._commit_lock = threading.Lock()
         self.data_dir = data_dir
         self.quarantine_dir = data_dir / "quarantine"
         self.originals_dir = data_dir / "originals"
@@ -160,3 +191,52 @@ class DocumentStore:
                 segments=[],
             )
         return PageText.model_validate_json(path.read_bytes())
+
+    # ------------------------------------------------------------ preprocessing runs
+
+    def _run_dir(self, document_id: str, profile: str) -> Path:
+        if not _PROFILE_NAME.fullmatch(profile):
+            raise AppError(ErrorCode.PREPROCESSING_NOT_FOUND, "Preprocessing run not found")
+        return self._document_dir(document_id) / "preprocessed" / profile
+
+    def stage_run(self, document_id: str) -> StagedRun:
+        parent = self._ensure(self._document_dir(document_id) / "preprocessed")
+        return StagedRun(parent / f".staging-{uuid.uuid4().hex}")
+
+    def commit_run(self, document_id: str, profile: str, staged: StagedRun) -> None:
+        """Replace any previous run of this profile atomically; readers never see a mix."""
+        target = self._run_dir(document_id, profile)
+        with self._commit_lock:
+            previous = None
+            if target.exists():
+                previous = target.with_name(f".old-{uuid.uuid4().hex}")
+                os.replace(target, previous)
+            os.replace(staged.root, target)
+        if previous is not None:
+            shutil.rmtree(previous, ignore_errors=True)
+
+    def discard_run(self, staged: StagedRun) -> None:
+        shutil.rmtree(staged.root, ignore_errors=True)
+
+    def list_runs(self, document_id: str) -> list[str]:
+        root = self._document_dir(document_id) / "preprocessed"
+        if not root.is_dir():
+            return []
+        return sorted(p.name for p in root.iterdir() if (p / "run.json").is_file())
+
+    def read_run(self, document_id: str, profile: str) -> PreprocessingRun:
+        path = self._run_dir(document_id, profile) / "run.json"
+        if not path.is_file():
+            raise AppError(ErrorCode.PREPROCESSING_NOT_FOUND, "Preprocessing run not found")
+        return PreprocessingRun.model_validate_json(path.read_bytes())
+
+    def preprocessed_image_path(self, document_id: str, profile: str, page_number: int) -> Path:
+        run = self.read_run(document_id, profile)
+        if not 1 <= page_number <= len(run.pages):
+            raise AppError(ErrorCode.PAGE_NOT_FOUND, "Page not found")
+        if run.pages[page_number - 1].output is None:
+            raise AppError(
+                ErrorCode.PREPROCESSED_IMAGE_NOT_AVAILABLE,
+                "No preprocessed image for this page; use the source page image",
+            )
+        return self._run_dir(document_id, profile) / "pages" / f"{_page_name(page_number)}.png"

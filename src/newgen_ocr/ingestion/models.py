@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from newgen_ocr.imaging.quality import QualityReport
 from newgen_ocr.ingestion.formats import DocumentFormat
 
 
@@ -74,6 +75,7 @@ class PageManifest(BaseModel):
     embedded_text_chars: int = 0
     has_embedded_text: bool = False
     image: PageImageInfo | None = None
+    quality: QualityReport | None = None  # assessed for every page that has an image
 
 
 class ProcessingInfo(BaseModel):
@@ -82,6 +84,7 @@ class ProcessingInfo(BaseModel):
     native_text_min_chars: int
     pdfium_version: str | None
     pillow_version: str
+    opencv_version: str
 
 
 class DocumentManifest(BaseModel):

@@ -1,6 +1,6 @@
 """Document ingestion: receive → quarantine → validate → extract/render → commit.
 
-Runs synchronously for now; it moves behind the job queue in Phase 3 (ADR-0012).
+Runs synchronously for now; it moves behind the job queue in Phase 4 (ADR-0012).
 On any failure, quarantined bytes and staged artefacts are removed and a
 ``document.rejected`` audit event is recorded with the error code.
 """
@@ -16,13 +16,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO
 
+import cv2
+import numpy as np
 import PIL
+from PIL import Image
 
 from newgen_ocr import __version__
 from newgen_ocr.audit import AuditEvent, AuditLog
 from newgen_ocr.config import Settings
 from newgen_ocr.errors import AppError, ErrorCode
 from newgen_ocr.imaging import loader
+from newgen_ocr.imaging.quality import QualityReport, assess
 from newgen_ocr.ingestion.formats import (
     MEDIA_TYPES,
     SIGNATURE_BYTES,
@@ -85,14 +89,22 @@ def receive(source: BinaryIO, dest: Path, max_bytes: int) -> ReceivedFile:
     return ReceivedFile(dest, size, digest.hexdigest(), head)
 
 
+def _quality(image: Image.Image, dpi: int | None) -> QualityReport:
+    report, _ = assess(np.asarray(image), dpi)
+    return report
+
+
 def _write_pages(staged: StagedDocument, pages: Iterable[pdf.ProcessedPage]) -> list[PageManifest]:
     manifests = []
     for page in pages:
+        manifest = page.manifest
         if page.image is not None:
-            staged.write_page_image(page.manifest.page_number, page.image)
+            staged.write_page_image(manifest.page_number, page.image)
+            dpi = manifest.image.dpi if manifest.image else None
+            manifest = manifest.model_copy(update={"quality": _quality(page.image, dpi)})
         if page.text is not None:
             staged.write_page_text(page.text)
-        manifests.append(page.manifest)
+        manifests.append(manifest)
     return manifests
 
 
@@ -130,15 +142,15 @@ def _process_image(
         for index, page in enumerate(loader.iter_pages(img, frames, limits)):
             page_number = index + 1
             staged.write_page_image(page_number, page)
+            dpi = _image_dpi(img.info)
             manifests.append(
                 PageManifest(
                     page_number=page_number,
                     source=PageSource.IMAGE,
                     needs_ocr=True,
                     ocr_reason=OcrReason.IMAGE_INPUT,
-                    image=PageImageInfo(
-                        width_px=page.width, height_px=page.height, dpi=_image_dpi(img.info)
-                    ),
+                    image=PageImageInfo(width_px=page.width, height_px=page.height, dpi=dpi),
+                    quality=_quality(page, dpi),
                 )
             )
     return manifests
@@ -186,6 +198,7 @@ class IngestionService:
                     native_text_min_chars=self.settings.native_text_min_chars,
                     pdfium_version=pdf.PDFIUM_VERSION if fmt is DocumentFormat.PDF else None,
                     pillow_version=PIL.__version__,
+                    opencv_version=cv2.__version__,
                 ),
             )
             staged.write_manifest(manifest)

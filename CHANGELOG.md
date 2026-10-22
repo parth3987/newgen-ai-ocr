@@ -4,6 +4,26 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 3: Image preprocessing and quality assessment (2026-10-22)
+- Quality assessment for every page image, recorded in the manifest: blank, low/unknown
+  resolution, blur, poor contrast, Gaussian and salt-and-pepper noise, uneven background,
+  skew and rotation, each with its metric.
+- Text-axis (90°) and skew detection by projection profiles (±0.15° on synthetic pages).
+- Preprocessing profiles `none`, `standard` (flag-driven), `degraded_scan`, `photo`,
+  `binarize`, plus custom profiles via environment; steps for orientation, deskew,
+  illumination flattening, denoise, contrast (stretch + CLAHE) and adaptive threshold.
+- Per-profile runs stored beside immutable source pages; every step's decision, parameters
+  and timing recorded; re-run endpoint; `preprocessing.completed/failed` audit events.
+- API: `profile` field on upload; `/api/v1/preprocessing/profiles`;
+  `/api/v1/documents/{id}/preprocessing[/{profile}[/pages/{n}/image]]`.
+- OpenCV 4.14 (PyPI, development only) and NumPy 2.4.6. Production startup guard rejects
+  FFmpeg-enabled OpenCV builds (ADR-0015).
+- CPU benchmark script, `make bench` and docs/PERFORMANCE.md. Measured optimisations:
+  end-to-end 1.9 → 1.2 s/page (PNG level 3, low-resolution background estimation).
+- `pip-audit` runs with `--disable-pip` (no package downloads).
+- Test PDF builder declares greyscale JPEGs correctly.
+- Implementation plan renumbered: persistence and jobs move to Phase 4.
+
 ### Phase 2: Document ingestion and PDF processing (2026-10-22)
 - `POST /api/v1/documents`, `GET /api/v1/documents/{id}`, `.../pages/{n}/text` and
   `.../pages/{n}/image`.

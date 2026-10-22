@@ -16,7 +16,7 @@ UV_COMPILE     := uv pip compile --python-version $(PYTHON_VERSION) \
 GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.21.2
 REPORTS        := reports
 
-.PHONY: help venv lock lint format typecheck test security secrets licenses sbom check run clean
+.PHONY: help venv lock lint format typecheck test security secrets licenses sbom bench check run clean
 
 help:
 	@grep -E '^[a-z]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -46,8 +46,8 @@ test: ## pytest with coverage gate
 
 security: ## Bandit + dependency vulnerability audit
 	$(BIN)/bandit -q -c pyproject.toml -r src scripts
-	$(BIN)/pip-audit --strict --require-hashes -r requirements.lock
-	$(BIN)/pip-audit --strict --require-hashes -r requirements-dev.lock
+	$(BIN)/pip-audit --strict --require-hashes --disable-pip -r requirements.lock
+	$(BIN)/pip-audit --strict --require-hashes --disable-pip -r requirements-dev.lock
 
 secrets: ## Gitleaks scan of git history and working tree
 	docker run --rm -v "$(CURDIR):/repo:ro" $(GITLEAKS_IMAGE) git /repo --no-banner
@@ -58,8 +58,11 @@ licenses: ## Fail on non-allowlisted runtime licenses
 
 sbom: ## CycloneDX SBOM of runtime dependencies -> reports/
 	mkdir -p $(REPORTS)
-	$(BIN)/pip-audit --require-hashes -r requirements.lock \
+	$(BIN)/pip-audit --require-hashes --disable-pip -r requirements.lock \
 		--format cyclonedx-json -o $(REPORTS)/sbom-runtime.cdx.json
+
+bench: ## CPU benchmark of quality assessment and preprocessing (docs/PERFORMANCE.md)
+	$(BIN)/python scripts/benchmark_preprocessing.py --repeat 5
 
 check: lint typecheck test security licenses ## Full local acceptance gate (plus `make secrets`)
 

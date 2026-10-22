@@ -7,10 +7,11 @@ make venv        # create .venv from the hash-pinned locks (Python 3.11)
 make lint        # ruff format --check + ruff check
 make typecheck   # mypy --strict on src/newgen_ocr
 make test        # pytest with coverage (fails under 90%)
-make security    # bandit + pip-audit (both locks)
+make security    # bandit + pip-audit (both locks, --disable-pip: no package downloads)
 make licenses    # runtime license allowlist
 make secrets     # gitleaks (git history + working tree; needs Docker)
 make sbom        # CycloneDX SBOM -> reports/
+make bench       # CPU benchmark of assessment/preprocessing (docs/PERFORMANCE.md)
 make check       # lint + typecheck + test + security + licenses
 ```
 
@@ -23,8 +24,10 @@ tests/
   conftest.py        settings/app/client fixtures (tmp data dir, no .env loading)
   fixtures/builders.py  synthetic documents: hand-built PDFs (text layers, embedded JPEG
                      "scans", invisible OCR layers, RC4-encrypted), JPEG/PNG/TIFF images
+  fixtures/pages.py  synthetic A4 text pages and degradations: rotation, quarter turns,
+                     Gaussian and salt-and-pepper noise, blur, fading, shadow, blank
   unit/              fast, no external services
-  integration/       HTTP API + real local storage (Phase 2); Postgres/Valkey [planned P3]
+  integration/       HTTP API + real local storage (Phase 2); Postgres/Valkey [planned P4]
   e2e/               upload → OCR → export on fixtures       [planned P5+]
 ```
 
@@ -40,6 +43,10 @@ tests/
   staging, originals or derived storage.
 - Fixtures are generated in code, so there are no binary blobs in the repository and every
   page's content (text layer, image, visibility, encryption) is controlled exactly.
+- Preprocessing tests assert outcomes against *measurements* (e.g. the re-measured skew
+  after deskew, flags clearing in `quality_after`), not just that a step ran.
+- Quality thresholds are calibrated on synthetic pages. Tests check both that each
+  degradation is flagged and that milder variants are not.
 - Accuracy measurement is separate from unit testing. See ACCURACY_EVALUATION.md.
 
 ## Known warnings

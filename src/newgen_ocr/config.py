@@ -10,10 +10,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from newgen_ocr.ingestion.formats import DocumentFormat
+from newgen_ocr.preprocessing.profiles import ProfileConfig, merge_profiles
 
 Environment = Literal["development", "test", "staging", "production"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -46,6 +47,27 @@ class Settings(BaseSettings):
     render_dpi: int = Field(default=300, ge=72, le=600)
     # Minimum extractable characters for a PDF page's text layer to be trusted.
     native_text_min_chars: int = Field(default=20, ge=1)
+
+    # Preprocessing (docs/DECISIONS.md ADR-0016..0018).
+    default_preprocessing_profile: str = "standard"
+    # JSON list of additional ProfileConfig objects; names must not clash with built-ins.
+    custom_preprocessing_profiles: tuple[ProfileConfig, ...] = ()
+    # OpenCV worker threads per process; None keeps OpenCV's default (all cores).
+    opencv_threads: int | None = Field(default=None, ge=1, le=256)
+
+    @model_validator(mode="after")
+    def _check_profiles(self) -> Settings:
+        profiles = merge_profiles(self.custom_preprocessing_profiles)
+        if self.default_preprocessing_profile not in profiles:
+            raise ValueError(
+                f"default_preprocessing_profile {self.default_preprocessing_profile!r} "
+                "is not a defined profile"
+            )
+        return self
+
+    @property
+    def preprocessing_profiles(self) -> dict[str, ProfileConfig]:
+        return merge_profiles(self.custom_preprocessing_profiles)
 
 
 @lru_cache(maxsize=1)

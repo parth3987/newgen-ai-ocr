@@ -12,7 +12,7 @@ disabled (DECISIONS.md ADR-0005).
 - **Caching:** every response carries `Cache-Control: no-store` and
   `X-Content-Type-Options: nosniff`.
 - **Authentication:** not yet implemented (OD-6). Do not expose the service beyond a trusted
-  network until Phase 3 adds it.
+  network until Phase 4 adds it.
 - **Request size:** bodies larger than `NGOCR_MAX_UPLOAD_BYTES` + 64 KiB are refused with
   `413 FILE_TOO_LARGE`, either immediately (from Content-Length) or as soon as the streamed
   body exceeds the limit.
@@ -45,13 +45,16 @@ Messages never contain document content or submitted values.
 | `DOCUMENT_NOT_FOUND` | 404 | Unknown document id |
 | `PAGE_NOT_FOUND` | 404 | Page number outside `1..page_count` |
 | `PAGE_IMAGE_NOT_AVAILABLE` | 404 | Page has no image (native-text PDF pages are not rendered) |
+| `UNKNOWN_PROFILE` | 422 | Preprocessing profile name is not defined |
+| `PREPROCESSING_NOT_FOUND` | 404 | That profile has not been run for this document |
+| `PREPROCESSED_IMAGE_NOT_AVAILABLE` | 404 | The profile did not change this page (or skipped it); use the source page image |
 
 Codes are stable: they are never renamed or reused.
 
 ## Health
 
 ### `GET /health/live`
-`200` → `{"status": "ok", "version": "0.2.0"}`. Performs no dependency checks.
+`200` → `{"status": "ok", "version": "0.3.0"}`. Performs no dependency checks.
 
 ### `GET /health/ready`
 `200` → `{"status": "ready", "checks": {"data_dir_writable": true}}`
@@ -60,8 +63,11 @@ Codes are stable: they are never renamed or reused.
 ## Documents
 
 ### `POST /api/v1/documents`
-`multipart/form-data` with one file part named `file`. Processing is synchronous for now
-(ADR-0012).
+`multipart/form-data` with one file part named `file` and an optional text field `profile`
+(preprocessing profile; default `NGOCR_DEFAULT_PREPROCESSING_PROFILE`, normally `standard`).
+An unknown profile is rejected with `422 UNKNOWN_PROFILE` before anything is stored.
+Processing is synchronous for now (ADR-0012). After the document is stored, the profile is run
+best-effort: a preprocessing failure is audited but does not fail the upload.
 
 `201` → `DocumentManifest`:
 
@@ -86,8 +92,9 @@ Codes are stable: they are never renamed or reused.
      "embedded_text_chars": 0, "has_embedded_text": false,
      "image": {"width_px": 2550, "height_px": 3300, "dpi": 300}}
   ],
-  "processing": {"pipeline_version": "0.2.0", "render_dpi": 300, "native_text_min_chars": 20,
-                 "pdfium_version": "156.0.8076.0", "pillow_version": "13.0.0"}
+  "processing": {"pipeline_version": "0.3.0", "render_dpi": 300, "native_text_min_chars": 20,
+                 "pdfium_version": "156.0.8076.0", "pillow_version": "13.0.0",
+                 "opencv_version": "4.14.0"}
 }
 ```
 
@@ -97,6 +104,23 @@ Codes are stable: they are never renamed or reused.
 | `ocr_reason` | `native_text`, `no_text_layer`, `insufficient_text`, `unreliable_text`, `invisible_text_layer`, `image_content`, `image_input` (see ADR-0011) |
 | `pdf_encrypted` | `true` for permissions-only encrypted PDFs (accepted) |
 | `image.dpi` | Render DPI for PDF pages; the file's declared DPI (or `null`) for image uploads |
+| `quality` | `null` for pages without an image; otherwise `{"flags": [...], "metrics": {...}, "duration_ms"}` (below) |
+
+#### Page `quality`
+
+`flags` ⊆ `blank_page`, `low_resolution`, `resolution_unknown`, `blurry`, `poor_contrast`,
+`noisy`, `uneven_background`, `skewed`, `rotated` (ADR-0017). `metrics`:
+
+```json
+{"width_px": 2550, "height_px": 3300, "dpi": 300, "effective_dpi": 300,
+ "ink_fraction": 0.071, "intensity_spread": 255.0, "text_contrast": 196.1,
+ "sharpness": 1.12, "noise_sigma": 0.0, "impulse_noise_ratio": 0.0,
+ "background_variation": 0.0, "text_axis": "horizontal", "axis_ratio": 7.0,
+ "skew_deg": 3.0, "skew_confidence": 9.1}
+```
+
+`skew_deg` is counter-clockwise positive, relative to the detected text axis, and `null` when
+unreliable. `sharpness` and `noise_sigma` are `null` when not measurable (e.g. blank pages).
 
 Errors: `413 FILE_TOO_LARGE`, `415 UNSUPPORTED_FORMAT | FORMAT_MISMATCH`,
 `422 EMPTY_FILE | CORRUPT_DOCUMENT | ENCRYPTED_DOCUMENT | TOO_MANY_PAGES | PAGE_TOO_LARGE |
@@ -123,3 +147,59 @@ Pages without an embedded text layer return empty `text` and `segments`.
 ### `GET /api/v1/documents/{document_id}/pages/{page_number}/image`
 `200` → `image/png`, the rendered PDF page or the normalised (EXIF-oriented, 8-bit L/RGB) image
 page. `404 DOCUMENT_NOT_FOUND | PAGE_NOT_FOUND | PAGE_IMAGE_NOT_AVAILABLE`.
+
+## Preprocessing
+
+### `GET /api/v1/preprocessing/profiles`
+`200` → list of profile configurations (`name`, `description`, `orientation`, `deskew`,
+`deskew_min_angle`, `illumination`, `denoise`, `denoise_method`, `denoise_strength`,
+`contrast`, `clahe_clip_limit`, `clahe_tile_grid`, `adaptive_threshold`,
+`threshold_block_inches`, `threshold_c`). Step modes are `never`, `auto` (only when the
+matching quality flag is set) or `always`.
+
+### `GET /api/v1/documents/{document_id}/preprocessing`
+`200` → names of profiles that have been run, e.g. `["binarize", "standard"]`.
+
+### `POST /api/v1/documents/{document_id}/preprocessing/{profile}`
+(Re)runs a profile. It replaces any earlier run of the same profile atomically; other profiles
+and the source page images are untouched. `201` → `PreprocessingRun`.
+`422 UNKNOWN_PROFILE`; `404 DOCUMENT_NOT_FOUND`.
+
+### `GET /api/v1/documents/{document_id}/preprocessing/{profile}`
+`200` → `PreprocessingRun`:
+
+```json
+{"document_id": "…", "profile": {"name": "standard", "…": "…"},
+ "created_at": "…", "pipeline_version": "0.3.0",
+ "runtime": {"opencv_version": "4.14.0", "numpy_version": "2.4.6",
+             "cpu_model": "Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz",
+             "logical_cpus": 4, "opencv_threads": 4},
+ "total_ms": 281.4,
+ "pages": [
+   {"page_number": 1, "status": "skipped", "skip_reason": "no_page_image", "steps": [], "…": "…"},
+   {"page_number": 2, "status": "processed", "skip_reason": null,
+    "steps": [
+      {"name": "orientation", "applied": false, "reason": "text_axis:horizontal", "params": {}, "duration_ms": 0.0},
+      {"name": "deskew", "applied": true, "reason": "skew_detected", "params": {"angle_deg": 4.0}, "duration_ms": 14.2},
+      {"name": "illumination", "applied": false, "reason": "disabled", "params": {}, "duration_ms": 0.0},
+      {"name": "denoise", "applied": false, "reason": "not_flagged", "params": {}, "duration_ms": 0.0},
+      {"name": "contrast", "applied": false, "reason": "not_flagged", "params": {}, "duration_ms": 0.0},
+      {"name": "threshold", "applied": false, "reason": "disabled", "params": {}, "duration_ms": 0.0}],
+    "rotation_applied_deg": 0, "skew_detected_deg": 4.0, "skew_corrected_deg": 4.0,
+    "quality_flags_before": ["skewed"],
+    "output": {"width_px": 1712, "height_px": 2397, "dpi": 200},
+    "quality_after": {"flags": [], "metrics": {"…": "…"}, "duration_ms": 190.0},
+    "duration_ms": 214.9}]}
+```
+
+| Field | Values |
+|---|---|
+| `status` | `processed` (output image written), `unchanged` (no step applied; use the source), `skipped` (`skip_reason`: `no_page_image` for native-text PDF pages, `blank_page`) |
+| step `reason` | `flag:<flag>`, `always`, `enabled`, `not_flagged`, `disabled`, `skew_detected`, `below_min_angle`, `skew_undetermined`, `text_axis:<axis>` |
+| `rotation_applied_deg` | `90` when vertical text was turned clockwise. A 180° ambiguity always remains for the OCR stage (ADR-0016) |
+
+`404 PREPROCESSING_NOT_FOUND`; `422 VALIDATION_ERROR` for a malformed profile name.
+
+### `GET /api/v1/documents/{document_id}/preprocessing/{profile}/pages/{page_number}/image`
+`200` → `image/png` (8-bit greyscale). Deskewed images are enlarged to avoid cropping.
+`404 PREPROCESSED_IMAGE_NOT_AVAILABLE | PAGE_NOT_FOUND | PREPROCESSING_NOT_FOUND`.

@@ -19,6 +19,8 @@ from newgen_ocr.logging_config import request_id_var
 class AuditEvent(StrEnum):
     DOCUMENT_ACCEPTED = "document.accepted"
     DOCUMENT_REJECTED = "document.rejected"
+    PREPROCESSING_COMPLETED = "preprocessing.completed"
+    PREPROCESSING_FAILED = "preprocessing.failed"
 
 
 AuditValue = str | int | bool | None

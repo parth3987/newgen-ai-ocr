@@ -22,8 +22,8 @@ with outbound network access blocked. No external LLM, hosted OCR or inference A
 
 ## 2. Processing pipeline
 
-Stages up to and including PDF text extraction / page rendering are **implemented** (Phase 2,
-synchronous, see ADR-0012); the remainder is planned.
+Stages up to and including image quality assessment and preprocessing are **implemented**
+(Phases 2–3, synchronous, see ADR-0012). Document/language classification onwards is planned.
 
 ```
 upload → file validation + quarantine → PDF text extraction or page rendering
@@ -73,6 +73,7 @@ src/newgen_ocr/
     body_limit.py      streaming request-body size limit (ASGI)          [implemented P2]
     routes/health.py   /health/live, /health/ready                       [implemented]
     routes/documents.py upload, manifest, page text, page image          [implemented P2]
+    routes/preprocessing.py profiles, runs, preprocessed images          [implemented P3]
     routes/...         jobs, results, review                             [planned]
   ingestion/
     formats.py         signature detection, extension check              [implemented P2]
@@ -83,10 +84,18 @@ src/newgen_ocr/
     processor.py       PDFium open/validate, text+bbox, render           [implemented P2]
   imaging/
     loader.py          restricted Pillow decode, normalisation           [implemented P2]
-    (quality, preprocess) OpenCV quality metrics, deskew, denoise        [planned P4]
+    geometry.py        text-axis + skew estimation, rotations            [implemented P3]
+    quality.py         quality metrics and flags                         [implemented P3]
+    filters.py         denoise, contrast, illumination, threshold        [implemented P3]
+    runtime.py         OpenCV threads, runtime info, production guard    [implemented P3]
+  preprocessing/
+    profiles.py        named profiles (built-in + custom)                [implemented P3]
+    pipeline.py        per-page step execution and recording             [implemented P3]
+    service.py         per-document runs, storage, audit                 [implemented P3]
+    models.py          PreprocessingRun / PagePreprocessing / StepRecord [implemented P3]
   storage/local.py     originals / derived / staging / quarantine        [implemented P2]
-  db/                  SQLAlchemy models, Alembic migrations             [planned P3]
-  worker/              Celery app + idempotent tasks                     [planned P3]
+  db/                  SQLAlchemy models, Alembic migrations             [planned P4]
+  worker/              Celery app + idempotent tasks                     [planned P4]
   ocr/                 engine protocol + Paddle/Tesseract adapters       [planned P5]
   evaluation/          CER/WER + field metrics harness                   [planned P5]
   classification/      document type + language/script detection         [planned P6]
@@ -110,8 +119,10 @@ Dependency rule: `api` and `worker` may depend on domain modules; domain modules
 | Errors | Stable `ErrorCode` values in a uniform envelope; unhandled errors return a generic 500 and are logged with traceback [implemented] |
 | Health | Liveness (process up) vs readiness (dependencies usable) [implemented; readiness covers `data_dir` only] |
 | API docs | Swagger UI/ReDoc disabled (they load CDN assets); OpenAPI JSON at `/api/v1/openapi.json` [implemented] |
-| Auth | Not yet implemented. See DECISIONS.md open decision OD-6 [planned P3] |
+| Auth | Not yet implemented. See DECISIONS.md open decision OD-6 [planned P4] |
 | Document storage | Local filesystem, originals separate from derived, atomic commit (ADR-0013) [implemented] |
 | Audit | JSONL lifecycle events without content or filenames (ADR-0014) [implemented] |
 | Untrusted parsing | PDFium (serialised by a lock) and Pillow restricted to the detected format; in-process for now (OD-12) [implemented] |
+| OpenCV supply | PyPI wheel in development; minimal source build required in production, enforced at startup (ADR-0015) [guard implemented, build planned P4] |
+| Source preservation | Source page images are immutable; preprocessing outputs live per profile beside them (ADR-0018) [implemented] |
 | Egress control | Host firewall / isolated container network. See OFFLINE_DEPLOYMENT.md [planned P10]. FastAPI telemetry disabled in code (ADR-0008) [implemented] |

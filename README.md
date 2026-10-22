@@ -12,9 +12,11 @@ scanned PDFs and handwriting recognition.
 
 ## Status
 
-Phase 2 (document ingestion and PDF processing) is complete. The service accepts PDF, JPEG,
-PNG and TIFF uploads, validates them safely, uses embedded text from native PDF pages and
-renders scanned pages to images, ready for OCR. **No OCR engine is integrated yet.** See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+Phase 3 (image preprocessing and quality assessment) is complete. The service accepts PDF,
+JPEG, PNG and TIFF uploads, validates them safely, uses embedded text from native PDF pages,
+renders scanned pages, flags quality problems, and corrects orientation, skew, noise and
+contrast with configurable profiles while keeping the source images. **No OCR engine is
+integrated yet.** See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start
 
@@ -25,7 +27,7 @@ make venv              # Python 3.11 venv from hash-pinned locks
 make check             # lint, types, tests, security, licenses
 make run               # API on http://127.0.0.1:8000
 curl localhost:8000/health/ready
-curl -F file=@document.pdf localhost:8000/api/v1/documents
+curl -F file=@document.pdf -F profile=standard localhost:8000/api/v1/documents
 ```
 
 Configuration: see [.env.example](.env.example).
@@ -45,4 +47,5 @@ Configuration: see [.env.example](.env.example).
 | [MODEL_INVENTORY](docs/MODEL_INVENTORY.md) | Models, hashes and licenses |
 | [THIRD_PARTY_NOTICES](docs/THIRD_PARTY_NOTICES.md) | Dependency licenses |
 | [OPERATIONS_RUNBOOK](docs/OPERATIONS_RUNBOOK.md) | Running and troubleshooting |
+| [PERFORMANCE](docs/PERFORMANCE.md) | Measured CPU timings and sizing notes |
 | [CHANGELOG](CHANGELOG.md) | Changes by phase |

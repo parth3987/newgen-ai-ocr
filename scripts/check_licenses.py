@@ -37,7 +37,13 @@ REVIEWED: dict[tuple[str, str], str] = {
     # (FreeType FTL, IJG, ICU/Unicode, zlib, MIT, BSD, Apache) reviewed 2026-10-22.
     # See docs/THIRD_PARTY_NOTICES.md.
     ("pypdfium2", "5.14.0"): "BSD-3-Clause, Apache-2.0, dependency licenses",
+    # All components permissive (BSD-3-Clause, 0BSD, MIT, Zlib, CC0-1.0); reviewed 2026-10-22.
+    ("numpy", "2.4.6"): "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
 }
+# NOTE: opencv-python-headless declares Apache-2.0 and passes the allowlist, but the PyPI
+# wheel bundles LGPL FFmpeg and EOL OpenSSL 1.1.1k. It is accepted for development only;
+# production must use the minimal source build (docs/DECISIONS.md ADR-0015), which the
+# application enforces at startup.
 
 
 def approved(row: dict[str, str]) -> bool:

@@ -1,7 +1,7 @@
 # Operations Runbook
 
 Status: development stage. Only the API process exists. Compose services, backups and
-recovery are added in Phase 3 and Phase 10.
+recovery are added in Phase 4 and Phase 10.
 
 ## Start / stop (development)
 
@@ -26,6 +26,12 @@ All variables use the `NGOCR_` prefix. See `.env.example`.
 | `NGOCR_MAX_PAGE_PIXELS` | 80000000 | Decoded pixels per page (images; PDF pages at render DPI) |
 | `NGOCR_RENDER_DPI` | 300 | DPI for rendering PDF pages that need OCR (72–600) |
 | `NGOCR_NATIVE_TEXT_MIN_CHARS` | 20 | Minimum text-layer characters for a page to skip OCR |
+| `NGOCR_DEFAULT_PREPROCESSING_PROFILE` | `standard` | Profile run after each upload (`none` disables) |
+| `NGOCR_CUSTOM_PREPROCESSING_PROFILES` | `[]` | JSON list of extra profiles (see API_SPECIFICATION.md) |
+| `NGOCR_OPENCV_THREADS` | OpenCV default | Threads per process; use `1` with multiple worker processes |
+
+**Production startup fails** if the OpenCV build includes FFmpeg (the PyPI wheel) and
+`NGOCR_ENVIRONMENT=production`. Install the minimal source-built OpenCV wheel (ADR-0015).
 
 Set `TMPDIR` for the service to a directory on the protected data volume. Uploads over 1 MiB
 are spooled there while the request is parsed (OD-15).
@@ -37,6 +43,7 @@ data/quarantine/   incoming bytes during validation (normally empty)
 data/staging/      derived output under construction (normally empty)
 data/originals/    accepted originals, read-only (0440)
 data/derived/      manifest.json, pages/NNNN.png, text/NNNN.json per document
+                   preprocessed/<profile>/run.json + pages/NNNN.png per profile run
 data/audit/        audit.jsonl
 ```
 
@@ -59,7 +66,7 @@ is an orphan from a crash between the two commit steps. Report it before deletin
 | Startup `ValidationError` mentioning `NGOCR_…` | Invalid environment value | Compare against `.env.example` |
 | Need details of a 500 | Errors return only a generic message | Search logs for the response's `X-Request-ID` (`request_id` field) |
 | Upload rejected | See the `error.code` in the response | Codes are listed in API_SPECIFICATION.md. The audit log has a matching `document.rejected` event with sha256 |
-| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 3 moves processing to workers |
+| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 4 moves processing to workers |
 
 ## Logs
 
@@ -67,6 +74,13 @@ JSON lines on stdout (`NGOCR_LOG_FORMAT=json`). Fields: `ts`, `level`, `logger`,
 `request_id`, plus event-specific metadata. Logs must not contain document content. Report it
 as a security defect if they do.
 
+## Capacity
+
+See docs/PERFORMANCE.md. Measured on a laptop CPU: about 1.2 s/page at 300 DPI for ingest
+plus `standard` preprocessing, and about 4–6 MB of storage per scanned page. Plan disk for
+tens of GB per day at high volume (OD-16). Leftover `.staging-*` or `.old-*` directories
+under `preprocessed/` after a crash can be deleted while the service is idle.
+
 ## Backups and recovery
 
-To be defined in Phase 3 (PostgreSQL dumps + `data/` volume snapshots) and drilled in Phase 10.
+To be defined in Phase 4 (PostgreSQL dumps + `data/` volume snapshots) and drilled in Phase 10.
