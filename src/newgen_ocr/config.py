@@ -55,6 +55,31 @@ class Settings(BaseSettings):
     # OpenCV worker threads per process; None keeps OpenCV's default (all cores).
     opencv_threads: int | None = Field(default=None, ge=1, le=256)
 
+    # OCR (docs/DECISIONS.md ADR-0020..0022). Models are read only from models_dir and
+    # verified against models_lock; nothing is ever downloaded at runtime.
+    models_dir: Path = Path("./models")
+    models_lock: Path = Path("./models.lock.json")
+    ocr_primary_engine: Literal["paddle", "tesseract"] = "paddle"
+    ocr_fallback_engine: Literal["paddle", "tesseract"] | None = "tesseract"
+    # Per-language primary engine overrides (the other engine becomes the fallback).
+    # Kannada: PaddleOCR's only Kannada model measured CER 0.39 vs Tesseract 0.01 (OD-17).
+    ocr_language_primary: dict[str, Literal["paddle", "tesseract"]] = {"kn": "tesseract"}
+    ocr_default_languages: tuple[str, ...] = ("en",)
+    paddle_detection_model: str = "PP-OCRv5_mobile_det"
+    paddle_enable_mkldnn: bool = True
+    # CPU threads per OCR engine call; None = engine default.
+    ocr_cpu_threads: int | None = Field(default=None, ge=1, le=256)
+    tesseract_cmd: str = "tesseract"
+    ocr_page_timeout_s: int = Field(default=300, ge=5, le=3600)
+    # Pages whose engines agree less than this (1 - CER between them) are flagged for review.
+    ocr_disagreement_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _check_ocr_engines(self) -> Settings:
+        if self.ocr_fallback_engine == self.ocr_primary_engine:
+            raise ValueError("ocr_fallback_engine must differ from ocr_primary_engine")
+        return self
+
     @model_validator(mode="after")
     def _check_profiles(self) -> Settings:
         profiles = merge_profiles(self.custom_preprocessing_profiles)

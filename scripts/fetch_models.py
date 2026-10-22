@@ -1,0 +1,146 @@
+"""Download pinned OCR model files during staging, and verify them.
+
+Usage:
+    python scripts/fetch_models.py [--models-dir models] [--only PREFIX] [--record]
+
+Network use is confined to this staging script; the application never downloads models.
+Every file is fetched from the exact revision pinned in models.lock.json and checked
+against its recorded SHA-256. With --record, missing hashes are filled in (first fetch of a
+new model): for Hugging Face LFS files the computed hash must also match the SHA-256 that
+Hugging Face publishes, so a hash is never trusted from a single source.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+import time
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+LOCK = ROOT / "models.lock.json"
+_TIMEOUT = 60
+_ATTEMPTS = 4
+
+
+def _out(message: str) -> None:
+    sys.stdout.write(message + "\n")
+    sys.stdout.flush()
+
+
+def _url(source: dict[str, str], filename: str) -> str:
+    if source["type"] == "huggingface":
+        return f"https://huggingface.co/{source['repo']}/resolve/{source['revision']}/{filename}"
+    if source["type"] == "github":
+        return f"https://raw.githubusercontent.com/{source['repo']}/{source['revision']}/{filename}"
+    raise ValueError(f"unknown source type {source['type']!r}")
+
+
+def _get(url: str) -> bytes:
+    last: Exception | None = None
+    for attempt in range(1, _ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=_TIMEOUT) as response:  # noqa: S310  # nosec B310
+                return bytes(response.read())
+        except OSError as exc:  # includes URLError and timeouts
+            last = exc
+            time.sleep(2 * attempt)
+    raise RuntimeError(f"download failed after {_ATTEMPTS} attempts: {url}") from last
+
+
+def _published_lfs_hashes(source: dict[str, str]) -> dict[str, str]:
+    if source["type"] != "huggingface":
+        return {}
+    url = f"https://huggingface.co/api/models/{source['repo']}/revision/{source['revision']}?blobs=true"
+    info: dict[str, Any] = json.loads(_get(url))
+    return {s["rfilename"]: s["lfs"]["sha256"] for s in info.get("siblings", []) if s.get("lfs")}
+
+
+def _published_git_blobs(source: dict[str, str]) -> dict[str, str]:
+    if source["type"] != "github":
+        return {}
+    url = f"https://api.github.com/repos/{source['repo']}/git/trees/{source['revision']}"
+    tree: dict[str, Any] = json.loads(_get(url))
+    return {
+        entry["path"]: entry["sha"] for entry in tree.get("tree", []) if entry["type"] == "blob"
+    }
+
+
+def _git_blob_sha1(data: bytes) -> str:
+    return hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest()
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def fetch(models_dir: Path, only: str | None, record: bool) -> int:
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    changed = False
+    failures = 0
+    for model in lock["models"]:
+        if only and not model["id"].startswith(only):
+            continue
+        target_dir = models_dir / model["dir"]
+        target_dir.mkdir(parents=True, exist_ok=True)
+        published: dict[str, str] | None = None
+        blobs: dict[str, str] = {}
+        for filename, expected in model["files"].items():
+            target = target_dir / filename
+            if expected and target.is_file() and _sha256(target.read_bytes()) == expected:
+                _out(f"ok        {model['id']}/{filename}")
+                continue
+            data = _get(_url(model["source"], filename))
+            digest = _sha256(data)
+            if expected is None:
+                if not record:
+                    _out(f"UNPINNED  {model['id']}/{filename} (run with --record)")
+                    failures += 1
+                    continue
+                if published is None:
+                    published = _published_lfs_hashes(model["source"])
+                    blobs = _published_git_blobs(model["source"])
+                if filename in published and published[filename] != digest:
+                    _out(f"MISMATCH  {model['id']}/{filename} vs published LFS hash")
+                    failures += 1
+                    continue
+                if filename in blobs and blobs[filename] != _git_blob_sha1(data):
+                    _out(f"MISMATCH  {model['id']}/{filename} vs published git blob")
+                    failures += 1
+                    continue
+                model["files"][filename] = digest
+                changed = True
+                verified = filename in published or filename in blobs
+                note = "cross-checked" if verified else "recorded"
+                _out(f"{note:9s} {model['id']}/{filename} {digest[:16]}")
+            elif digest != expected:
+                _out(f"MISMATCH  {model['id']}/{filename}: got {digest}, expected {expected}")
+                failures += 1
+                continue
+            else:
+                _out(f"fetched   {model['id']}/{filename}")
+            tmp = target.with_suffix(target.suffix + ".part")
+            tmp.write_bytes(data)
+            os.replace(tmp, target)
+    if changed:
+        LOCK.write_text(json.dumps(lock, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        _out(f"updated {LOCK.name}; review and commit it")
+    return 1 if failures else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--models-dir", type=Path, default=ROOT / "models")
+    parser.add_argument("--only", help="only model ids starting with this prefix")
+    parser.add_argument("--record", action="store_true", help="record hashes for new models")
+    args = parser.parse_args()
+    return fetch(args.models_dir, args.only, args.record)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,9 @@
+# uv dependency overrides (applied by `make lock`).
+# PaddleX pins opencv-contrib-python==4.10.0.84, a second distribution of the `cv2` module
+# that would clash with opencv-python-headless (and with the production minimal build,
+# ADR-0015). The marker below never matches, which removes the requirement; PaddleOCR uses
+# our cv2 instead (verified by tests).
+opencv-contrib-python ; sys_platform == "never"
+# crc32c (LGPL-2.0+) is an optional speed-up in bce-python-sdk, imported in try/except and
+# used only for Baidu cloud upload checksums, which this application never performs.
+crc32c ; sys_platform == "never"

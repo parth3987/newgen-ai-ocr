@@ -21,11 +21,18 @@ and by an `internal: true` Docker network for the api/worker/db/broker services.
 - Bundle creation (planned): `pip download --require-hashes -r requirements.lock -d wheels/`,
   then on the target `pip install --no-index --find-links wheels/ --require-hashes -r requirements.lock`.
 
-## 3. Models [planned P5]
+## 3. Models [implemented P4]
 
-All weights are downloaded during staging, recorded in MODEL_INVENTORY.md with SHA-256, and
-loaded from explicit local paths. Engine options that auto-download are disabled, and a
-startup check fails if a configured model file is missing or its hash differs.
+- Staging: `make models` downloads exactly the revisions pinned in `models.lock.json` into
+  `models/` and verifies every file's SHA-256 (about 198 MB). Copy `models/` and
+  `models.lock.json` into the offline bundle.
+- Production: the application only reads `models/` (`NGOCR_MODELS_DIR`) and verifies each
+  model's hashes before first use. A missing model returns `MODEL_NOT_AVAILABLE`; a
+  mismatch returns `MODEL_INTEGRITY_ERROR`. Nothing is downloaded.
+- PaddleX's own downloader is disabled in code (ADR-0020). Tesseract always runs with an
+  explicit `--tessdata-dir`.
+- System package for the bundle: `tesseract-ocr` 5.5.0 (Ubuntu apt; download the `.deb`
+  files at staging with `apt-get download`).
 
 ## 4. Verification [planned P10]
 

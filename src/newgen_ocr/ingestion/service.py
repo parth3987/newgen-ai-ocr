@@ -1,6 +1,6 @@
 """Document ingestion: receive → quarantine → validate → extract/render → commit.
 
-Runs synchronously for now; it moves behind the job queue in Phase 4 (ADR-0012).
+Runs synchronously for now; it moves behind the job queue in Phase 5 (ADR-0012).
 On any failure, quarantined bytes and staged artefacts are removed and a
 ``document.rejected`` audit event is recorded with the error code.
 """

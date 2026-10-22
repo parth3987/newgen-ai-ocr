@@ -13,12 +13,17 @@ from newgen_ocr import __version__
 from newgen_ocr.api.body_limit import BodySizeLimitMiddleware
 from newgen_ocr.api.errors import register_error_handlers
 from newgen_ocr.api.middleware import request_context_middleware
-from newgen_ocr.api.routes import documents, health, preprocessing
+from newgen_ocr.api.routes import documents, health, ocr, preprocessing
 from newgen_ocr.audit import AuditLog
 from newgen_ocr.config import Settings, get_settings
 from newgen_ocr.imaging.runtime import check_opencv_build, configure_opencv
 from newgen_ocr.ingestion.service import IngestionService
 from newgen_ocr.logging_config import configure_logging
+from newgen_ocr.ocr.engine import OcrEngine
+from newgen_ocr.ocr.model_store import ModelStore
+from newgen_ocr.ocr.paddle_engine import PaddleEngine
+from newgen_ocr.ocr.service import OcrService
+from newgen_ocr.ocr.tesseract_engine import TesseractEngine
 from newgen_ocr.preprocessing.service import PreprocessingService
 from newgen_ocr.storage.local import DocumentStore
 
@@ -26,6 +31,26 @@ logger = logging.getLogger(__name__)
 
 # Allowance for multipart boundaries and part headers on top of the file itself.
 MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+
+def build_engines(settings: Settings) -> dict[str, OcrEngine]:
+    """Engines are cheap to construct; models load lazily on first use."""
+    models = ModelStore(settings.models_dir, settings.models_lock)
+    return {
+        "paddle": PaddleEngine(
+            models,
+            cache_dir=settings.data_dir / "cache" / "paddlex",
+            detection_model=settings.paddle_detection_model,
+            cpu_threads=settings.ocr_cpu_threads,
+            enable_mkldnn=settings.paddle_enable_mkldnn,
+        ),
+        "tesseract": TesseractEngine(
+            models,
+            command=settings.tesseract_cmd,
+            timeout_s=settings.ocr_page_timeout_s,
+            threads=settings.ocr_cpu_threads,
+        ),
+    }
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -52,6 +77,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.store = store
     app.state.ingestion = IngestionService(settings, store, audit)
     app.state.preprocessing = PreprocessingService(store, audit, settings.preprocessing_profiles)
+    app.state.ocr = OcrService(
+        store,
+        audit,
+        build_engines(settings),
+        primary=settings.ocr_primary_engine,
+        fallback=settings.ocr_fallback_engine,
+        disagreement_threshold=settings.ocr_disagreement_threshold,
+        language_primary=dict(settings.ocr_language_primary),
+    )
 
     # Starlette runs the last-added middleware first: request context wraps the body limit.
     app.add_middleware(
@@ -62,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(documents.router)
     app.include_router(preprocessing.router)
+    app.include_router(ocr.router)
 
     logger.info(
         "application created",

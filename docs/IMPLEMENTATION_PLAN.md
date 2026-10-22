@@ -108,46 +108,74 @@ Limitations: thresholds are calibrated on synthetic pages only, and all timings 
 laptop CPU, not the target server. Real-scan calibration happens in Phase 5 with the
 evaluation set.
 
-## Phase 4: Persistence, jobs, containers and authentication (next)
+## Phase 4: Primary OCR and engine adapters (**complete**, 2026-10-22)
 
-PostgreSQL schema + Alembic migrations (documents, pages, preprocessing runs, audit events);
-Valkey + Celery workers. Ingestion and preprocessing move to idempotent tasks keyed on
-`(document_id, stage, input_hash)`, and parsing runs in workers under resource limits
-(OD-12), with `NGOCR_OPENCV_THREADS=1` per worker. Docker Compose for
+Redefined by the project owner on 2026-10-22. Persistence, jobs and containers move to Phase 5.
+
+- [x] Common `OcrEngine` interface and engine-independent result schema (ADR-0022).
+- [x] PaddleOCR 3.7 (PaddlePaddle 3.2.2) with locally stored, pinned, hash-verified models,
+      locked down against runtime downloads (ADR-0020).
+- [x] Tesseract 5 adapter (CLI, explicit `--tessdata-dir`, `tessdata_best`) as a separate
+      baseline and fallback; Kannada-primary by measurement (OD-17).
+- [x] Text, line boxes, polygons, words (Tesseract), 0..1 confidences and text-line/page
+      orientation returned.
+- [x] Engine version and exact model revisions + file hashes recorded in every run.
+- [x] Explicit model paths (`models.lock.json`, `NGOCR_MODELS_DIR`); offline loading;
+      `make models` at staging only (ADR-0021).
+- [x] Engine comparison (agreement → review flag); defined policy that never merges results.
+- [x] Tests for model loading/integrity, empty pages, errors, fallback and offline operation.
+- [x] Accuracy (CER/WER) and CPU throughput measured on a synthetic multilingual corpus
+      for both engines.
+
+Acceptance evidence (2026-10-22):
+
+| Criterion | Evidence | Status |
+|---|---|---|
+| OCR works without internet access | `test_paddle_ocr_runs_with_no_network_namespace`: OCR under `unshare -rn` (no interfaces), plus an audit hook recording **0** socket connect/DNS events across PaddleX import and recognition. Tesseract is a local subprocess with an explicit `--tessdata-dir` and has no network code paths | Met |
+| No model is downloaded automatically at runtime | `test_paddlex_cannot_resolve_or_download_models` (model manager raises); `test_missing_models_report_unavailable` and `test_missing_model_is_reported_not_downloaded` (`MODEL_NOT_AVAILABLE`, nothing fetched); PaddleX cache dir contains no model files after OCR; tamper test (`MODEL_INTEGRITY_ERROR`) | Met |
+| Output follows a documented schema | `newgen_ocr/ocr/models.py` = API_SPECIFICATION.md §OCR; schema assertions in `test_english_accuracy_and_schema`, `test_ocr_run_lifecycle` | Met |
+| The system records the engine used | Per run: engine version and models (revision + file hashes), `test_info_records_exact_models`. Per page: `engine`, `fallback_from` / `fallback_reason` (`test_fallback_*`); audit event `ocr.completed` | Met |
+| Accuracy and CPU throughput measured on a baseline corpus | ACCURACY_EVALUATION.md and PERFORMANCE.md: 36-page synthetic corpus, 6 languages × 3 conditions, CER/WER and s/page for both engines | Met (synthetic corpus only; real documents are not yet measured) |
+
+Additional findings: PaddlePaddle 3.3.1 oneDNN failure leading to the 3.2.2 pin (5x speed);
+the text-line orientation model garbling Indic scripts (now English-only); **Kannada is not
+usable on PaddleOCR** (CER 0.39, WER 1.0), so it is routed to Tesseract (CER 0.013);
+Tesseract's TSV config-file pitfall and Tamil zero-width joiners were found and fixed by
+measurement.
+
+## Phase 5: Persistence, jobs, containers and authentication (next)
+
+PostgreSQL schema + Alembic migrations (documents, pages, preprocessing and OCR runs, audit
+events); Valkey + Celery workers. Ingestion, preprocessing and OCR move to idempotent tasks
+keyed on `(document_id, stage, input_hash)`, with parsing and OCR in workers under resource
+limits (OD-12) and one OCR model set per worker process. Docker Compose for
 api/worker/postgres/valkey on an internal network, with the **minimal source-built OpenCV
-wheel** (ADR-0015) in the images. Readiness checks for DB and broker; API authentication
-(OD-6).
+wheel** (ADR-0015), `tesseract-ocr` and the verified `models/` in the images. Readiness checks
+for DB, broker and OCR engines; API authentication (OD-6).
 
 Acceptance: compose stack starts from scratch; migrations apply and roll back on an empty DB;
-upload returns 202 and the job produces the same manifest and run as Phase 3; retries do not
-duplicate artefacts; integration tests against real Postgres and Valkey; container image
-scan clean (OD-5); production-mode startup succeeds with the minimal OpenCV build.
-
-## Phase 5: OCR engines and evaluation harness
-
-`OcrEngine` protocol; Tesseract adapter (baseline); PaddleOCR adapter (CPU) with explicit
-local model paths and runtime downloads disabled; resolve the 0/180° orientation ambiguity
-(ADR-0016); MODEL_INVENTORY entries with hashes and license review; evaluation harness
-(CER/WER) and first per-language measurements on a curated, licensed test set; re-tune
-quality thresholds and profiles against OCR accuracy. **Stop point:** any model with an
-unclear license is reported before use.
+upload returns 202 and the jobs produce the same manifest, preprocessing run and OCR run as
+Phase 4; retries do not duplicate artefacts; integration tests against real Postgres and
+Valkey; container image scan clean (OD-5); production-mode startup succeeds with the minimal
+OpenCV build and no network.
 
 ## Phase 6: Classification and layout
 
-Document type classification, language/script detection, reading order, multi-column
-handling, table structure reconstruction, key-value detection; rotated-page coordinate
-reconciliation (OD-14).
+Document type classification, language/script detection (feeds OCR language selection,
+OD-20), page orientation for Devanagari (OD-18), reading order, multi-column handling, table
+structure reconstruction, key-value detection; rotated-page coordinate reconciliation (OD-14).
 
 ## Phase 7: Extraction, validation and export
 
 Field extraction (templates/rules per document type), validators (formats, checksums,
-cross-field rules), confidence aggregation and review triggers; JSON/CSV/Excel exports with
-evidence.
+cross-field rules), confidence calibration and aggregation, review triggers; JSON/CSV/Excel
+exports with evidence.
 
 ## Phase 8: Human review UI
 
 React + TypeScript review application served locally (no CDN assets): queue, page viewer with
-bounding-box overlays, source vs preprocessed comparison, field correction, audit trail.
+bounding-box overlays, source vs preprocessed comparison, engine disagreements, field
+correction, audit trail.
 
 ## Phase 9: Handwriting recognition
 
@@ -158,4 +186,5 @@ Languages without a viable model are documented as unsupported, not approximated
 
 Offline bundle (wheels, images, models, SBOM, hashes); host-level egress blocking verified by
 test; backups/restore drill; storage retention (OD-16); operations runbook; throughput
-benchmarks against the 100–10,000 pages/day target on the reference CPU server.
+benchmarks against the 100–10,000 pages/day target on the reference CPU server (OD-19); a
+real-document evaluation set.

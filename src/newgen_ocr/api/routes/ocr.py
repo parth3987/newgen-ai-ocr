@@ -1,0 +1,73 @@
+"""OCR engines and per-document OCR runs.
+
+OCR runs synchronously in the request for now (ADR-0012); expect seconds per page on CPU.
+No authentication yet (DECISIONS.md OD-6): bind to localhost or a trusted network only.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Path, Request
+from pydantic import BaseModel, Field
+
+from newgen_ocr.config import Settings
+from newgen_ocr.ocr.models import OcrComparison, OcrRun
+from newgen_ocr.ocr.service import EngineStatus, OcrService
+from newgen_ocr.storage.local import DocumentStore
+
+router = APIRouter(prefix="/api/v1", tags=["ocr"])
+
+DocumentId = Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")]
+RunName = Annotated[str, Path(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
+
+
+class OcrRequest(BaseModel):
+    engine: str = Field(default="auto", pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    languages: list[str] | None = Field(default=None, min_length=1, max_length=6)
+    # Preprocessing profile whose output images to read; None = configured default profile.
+    preprocessing_profile: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    compare: bool = False
+
+
+def _service(request: Request) -> OcrService:
+    service: OcrService = request.app.state.ocr
+    return service
+
+
+def _store(request: Request) -> DocumentStore:
+    store: DocumentStore = request.app.state.store
+    return store
+
+
+@router.get("/ocr/engines", response_model=list[EngineStatus])
+def list_engines(request: Request) -> list[EngineStatus]:
+    return _service(request).status()
+
+
+@router.post("/documents/{document_id}/ocr", status_code=201, response_model=OcrRun)
+def run_ocr(request: Request, document_id: DocumentId, body: OcrRequest) -> OcrRun:
+    """Run OCR. Replaces any earlier run for the same engine name."""
+    settings: Settings = request.app.state.settings
+    return _service(request).run(
+        document_id,
+        body.engine,
+        body.languages or list(settings.ocr_default_languages),
+        body.preprocessing_profile or settings.default_preprocessing_profile,
+        compare=body.compare,
+    )
+
+
+@router.get("/documents/{document_id}/ocr", response_model=list[str])
+def list_runs(request: Request, document_id: DocumentId) -> list[str]:
+    return _store(request).list_ocr_runs(document_id)
+
+
+@router.get("/documents/{document_id}/ocr/comparison", response_model=OcrComparison)
+def get_comparison(request: Request, document_id: DocumentId) -> OcrComparison:
+    return _store(request).read_ocr_comparison(document_id)
+
+
+@router.get("/documents/{document_id}/ocr/{engine}", response_model=OcrRun)
+def get_run(request: Request, document_id: DocumentId, engine: RunName) -> OcrRun:
+    return _store(request).read_ocr_run(document_id, engine)

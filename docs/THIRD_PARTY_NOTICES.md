@@ -1,33 +1,89 @@
 # Third-Party Notices
 
-Generated from `scripts/check_licenses.py` against `requirements.lock` on 2026-10-22 (Phase 3: 21 runtime packages).
+Generated from `scripts/check_licenses.py` against `requirements.lock` on 2026-10-22 (Phase 4: 77 runtime packages).
 Update this file whenever a lock file changes.
 
 ## Runtime (shipped)
 
 | Package | Version | License |
 |---|---|---|
+| aiohappyeyeballs | 2.7.1 | Python Software Foundation License |
+| aiohttp | 3.14.4 | Apache-2.0 AND MIT |
+| aiosignal | 1.4.0 | Apache Software License |
+| aistudio_sdk | 0.3.9 | Apache Software License model-hub SDK, installed but never invoked (ADR-0020) |
 | annotated-doc | 0.0.5 | MIT |
 | annotated-types | 0.8.0 | MIT |
 | anyio | 4.15.1 | MIT |
+| attrs | 26.1.0 | MIT |
+| bce-python-sdk | 0.9.79 | Apache License 2.0 Baidu cloud SDK, never invoked (ADR-0020) |
+| certifi | 2026.10.19 | Mozilla Public License 2.0 (MPL 2.0) **weak copyleft, reviewed** (below) |
+| cffi | 2.1.1 | MIT-0 |
+| chardet | 7.6.0 | 0BSD |
+| charset-normalizer | 3.5.2 | MIT |
 | click | 8.5.0 | BSD-3-Clause |
+| colorlog | 6.12.0 | MIT License |
+| cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause |
 | fastapi | 0.143.0 | MIT |
-| h11 | 0.16.0 | MIT |
+| filelock | 4.0.12 | MIT |
+| frozenlist | 1.8.0 | Apache-2.0 |
+| fsspec | 2026.9.0 | BSD-3-Clause |
+| future | 1.0.0 | MIT License |
+| h11 | 0.16.0 | MIT License |
+| hf-xet | 1.7.0 | Apache-2.0 |
+| httpcore | 1.0.9 | BSD-3-Clause |
+| httpcore2 | 2.13.1 | BSD-3-Clause |
+| httpx | 0.28.1 | BSD License |
+| httpx2 | 2.13.1 | BSD-3-Clause |
+| huggingface_hub | 2.2.0 | Apache Software License model-hub SDK, never invoked (ADR-0020) |
 | idna | 3.20 | BSD-3-Clause |
-| numpy | 2.4.6 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 (reviewed) |
-| opencv-python-headless | 4.14.0.94 | Apache-2.0, plus bundled libraries (below). **Development only** (ADR-0015) |
+| imagesize | 2.0.1 | MIT |
+| modelscope | 1.40.1 | Apache-2.0 model-hub SDK, never invoked (ADR-0020) |
+| modelscope-hub | 0.4.5 | Apache Software License model-hub SDK, never invoked (ADR-0020) |
+| multidict | 6.9.1 | Apache License 2.0 |
+| networkx | 3.6.1 | BSD-3-Clause |
+| numpy | 2.3.5 | BSD License |
+| opencv-python-headless | 4.14.0.94 | Apache Software License plus bundled libraries (below). **Development only** (ADR-0015) |
 | opentelemetry-api | 1.45.1 | Apache-2.0 (see ADR-0008) |
-| pillow | 13.0.0 | MIT-CMU (security override, see ADR-0007) |
+| opt-einsum | 3.3.0 | MIT |
+| packaging | 26.3 | Apache-2.0 OR BSD-2-Clause |
+| paddleocr | 3.7.0 | Apache License 2.0 |
+| paddlepaddle | 3.2.2 | Apache Software License |
+| paddlex | 3.7.2 | Apache-2.0 |
+| pandas | 3.0.6 | BSD License |
+| pillow | 13.0.0 | MIT-CMU (security override, ADR-0007) |
+| prettytable | 3.18.0 | BSD-3-Clause |
+| propcache | 0.5.4 | Apache-2.0 |
+| protobuf | 7.36.2 | 3-Clause BSD License |
+| psutil | 7.2.2 | BSD-3-Clause |
+| py-cpuinfo | 9.0.0 | MIT License |
+| pyclipper | 1.4.0 | MIT License |
+| pycparser | 3.1 | BSD-3-Clause |
+| pycryptodome | 3.24.0 | BSD License; Public Domain |
 | pydantic | 2.14.0 | MIT |
-| pydantic-core | 2.50.0 | MIT |
+| pydantic_core | 2.50.0 | MIT |
 | pydantic-settings | 2.15.0 | MIT |
-| pypdfium2 | 5.14.0 | BSD-3-Clause / Apache-2.0, plus bundled PDFium dependency licenses (below) |
+| pypdfium2 | 5.14.0 | BSD-3-Clause, Apache-2.0, dependency licenses plus bundled PDFium dependency licenses (below) |
+| python-bidi | 0.6.11 | GNU Library or Lesser General Public License (LGPL) **weak copyleft, reviewed** (below) |
+| python-dateutil | 2.9.0.post0 | Apache Software License; BSD License |
 | python-dotenv | 1.2.4 | BSD-3-Clause |
 | python-multipart | 0.0.32 | Apache-2.0 |
+| PyYAML | 6.0.2 | MIT License |
+| requests | 2.34.2 | Apache Software License |
+| ruamel.yaml | 0.19.1 | MIT License |
+| safetensors | 0.8.0 | Apache Software License |
+| setuptools | 84.0.0 | MIT |
+| shapely | 2.2.0 | BSD-3-Clause |
+| six | 1.17.0 | MIT License |
 | starlette | 1.7.0 | BSD-3-Clause |
-| typing-extensions | 4.16.0 | PSF-2.0 |
+| tqdm | 4.70.1 | MPL-2.0 AND MIT **weak copyleft, reviewed** (below) |
+| truststore | 0.10.4 | MIT |
+| typing_extensions | 4.16.0 | PSF-2.0 |
 | typing-inspection | 0.4.4 | MIT |
+| ujson | 6.0.0 | BSD-3-Clause AND TCL |
+| urllib3 | 2.8.0 | MIT |
 | uvicorn | 0.54.0 | BSD-3-Clause |
+| wcwidth | 0.9.2 | MIT License |
+| yarl | 1.25.1 | Apache-2.0 |
 
 Full license texts are included in each package's distribution metadata and will be collected
 into the offline bundle (Phase 10).
@@ -71,6 +127,23 @@ plus statically included libjpeg-turbo, libspng, libwebp, QUIRC, Flatbuffers and
 (permissive). The LGPL and GPL-with-exception components impose obligations on
 redistribution. This is one reason production uses a minimal source build without them
 (ADR-0015).
+
+### Weak-copyleft runtime packages (reviewed 2026-10-22)
+
+| Package | Licence | Why present | Use | Obligations |
+|---|---|---|---|---|
+| python-bidi 0.6.11 | LGPL-3.0 | Hard requirement of PaddleX's text recogniser | Unmodified, imported as a separate, replaceable package | Ship licence text; allow replacement (satisfied: plain wheel) |
+| certifi 2026.10.19 | MPL-2.0 | CA bundle for requests/httpx (dependencies of the Paddle stack) | Unmodified; unused at runtime (no egress) | Ship licence text; source of MPL files available upstream |
+| tqdm 4.70.1 | MPL-2.0 AND MIT | Progress bars in hub SDKs | Unmodified; unused | As above |
+
+`crc32c` (LGPL-2.0+), an optional dependency of the Baidu cloud SDK, is **removed** by a uv
+override (`overrides.txt`). So is `opencv-contrib-python`, which PaddleX pins; PaddleX uses
+our `opencv-python-headless` instead (ADR-0020).
+
+### OCR system binary
+
+`tesseract-ocr` 5.5.0 (Apache-2.0) and its dependency Leptonica (BSD-2-Clause-like) are OS
+packages, installed with apt, not Python dependencies.
 
 ## Development and CI only (not shipped)
 

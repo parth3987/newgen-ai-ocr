@@ -21,6 +21,7 @@ class AuditEvent(StrEnum):
     DOCUMENT_REJECTED = "document.rejected"
     PREPROCESSING_COMPLETED = "preprocessing.completed"
     PREPROCESSING_FAILED = "preprocessing.failed"
+    OCR_COMPLETED = "ocr.completed"
 
 
 AuditValue = str | int | bool | None

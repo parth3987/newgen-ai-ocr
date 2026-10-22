@@ -4,7 +4,7 @@
 
 ### ADR-0001: Python 3.11, uv and hash-pinned lock files (2026-10-22)
 Python 3.11 matches the mandated runtime and has the widest support among the CPU OCR
-stacks (PaddlePaddle compatibility is still to be verified in Phase 5). The dev host ships
+stacks (PaddlePaddle 3.2.2 verified in Phase 4, ADR-0020). The dev host ships
 3.14, so 3.11 is provisioned by uv. `requirements*.in` are the human-edited sources;
 `uv pip compile --generate-hashes` produces `requirements*.lock`, installed with
 `--require-hashes`. Locks are resolved for `x86_64-manylinux_2_28` / Python 3.11 regardless
@@ -64,7 +64,7 @@ Containers will also set `OTEL_SDK_DISABLED=true`.
 
 ### ADR-0009: Separate liveness and readiness probes (2026-10-22)
 `/health/live` performs no I/O (it is for restart decisions). `/health/ready` checks the
-dependencies needed to accept work (currently `data_dir`; DB and broker are added in Phase 4)
+dependencies needed to accept work (currently `data_dir`; DB and broker are added in Phase 5)
 and returns 503 with per-check results when any check fails.
 
 ### ADR-0010: Approved formats detected by signature (2026-10-22)
@@ -88,13 +88,13 @@ unnecessary OCR on image-heavy digital pages for never silently losing scanned c
 Thresholds are named constants and will be tuned against the evaluation set (Phase 5).
 
 ### ADR-0012: Synchronous ingestion with a global PDFium lock (temporary) (2026-10-22)
-Until the job queue exists (Phase 4), `POST /api/v1/documents` ingests synchronously in
+Until the job queue exists (Phase 5), `POST /api/v1/documents` ingests synchronously in
 FastAPI's thread pool. PDFium is not thread-safe, so all PDFium use is serialised by
 `PDFIUM_LOCK`. Throughput is therefore limited to one PDF at a time per process, which is
 acceptable for development and must not be used for production volumes.
 
 ### ADR-0013: Filesystem document store and manifests as the metadata record (2026-10-22)
-Until PostgreSQL arrives (Phase 4), `derived/<id>/manifest.json` is the system of record for
+Until PostgreSQL arrives (Phase 5), `derived/<id>/manifest.json` is the system of record for
 document metadata. Originals (`originals/`, mode 0440) are stored separately from derived
 artefacts (`derived/`). Derived output is built in `staging/` and renamed into place
 atomically, with the manifest included. Client filenames never touch the filesystem. Document
@@ -105,7 +105,7 @@ recorded so they can be deduplicated later).
 `audit/audit.jsonl` records `document.accepted` and `document.rejected` with request id,
 actor (`anonymous` until auth exists), sha256, size, format, page counts and error code,
 never filenames or content. Each line is appended with `O_APPEND` and fsync. It moves to a
-database table in Phase 4, with the file kept as a tamper-evident export.
+database table in Phase 5, with the file kept as a tamper-evident export.
 
 ### ADR-0015: OpenCV supplied as a minimal source build in production (2026-10-22)
 Decided by the project owner. The PyPI `opencv-python-headless` 4.14.0.94 wheel loads 16
@@ -119,7 +119,7 @@ only the modules we need (core, imgproc, photo), without FFmpeg/videoio/OpenSSL.
 published as an internal hash-pinned wheel that also satisfies PaddleOCR's `cv2`
 requirement. Development and CI use the PyPI wheel. **Enforcement:** `create_app` refuses
 to start with `NGOCR_ENVIRONMENT=production` if `cv2.getBuildInformation()` reports
-`FFMPEG: YES` (`newgen_ocr/imaging/runtime.py`, tested). The build itself is a Phase 4/10 task.
+`FFMPEG: YES` (`newgen_ocr/imaging/runtime.py`, tested). The build itself is a Phase 5/10 task.
 
 ### ADR-0016: Orientation and skew by projection profiles; 180° resolved at OCR (2026-10-22)
 Skew is the angle that maximises the sharpness of the ink projection profile (coarse 0.5°
@@ -161,23 +161,97 @@ logged and audited (`preprocessing.failed`) and does not fail the stored upload.
 PNG is lossless at every level. Level 3 measured 43% faster than the default level 6 on
 300 DPI RGB pages, with equal or smaller files (docs/PERFORMANCE.md).
 
+### ADR-0020: Official PaddleOCR stack, locked down for offline use (2026-10-22)
+Decided by the project owner: use PaddleOCR 3.7.0 / PaddleX 3.7.2 as published rather than
+custom glue or ONNX. This adds 56 transitive runtime packages, including model-hub SDKs
+(`huggingface-hub`, `modelscope`, `aistudio-sdk`, `bce-python-sdk`) that are installed but
+never invoked. Controls, all in `newgen_ocr/ocr/paddle_runtime.py` (the only module that
+imports PaddleX):
+1. Offline environment flags are set before import (`PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK`,
+   `HF_HUB_OFFLINE`, `MODELSCOPE_OFFLINE`, telemetry off). PaddleX's cache home is inside
+   `data/cache/paddlex`.
+2. PaddleX's official-model manager is disabled: any attempt to resolve a model by name raises
+   `OfflineModelResolutionError`. Every model is passed as an explicit, hash-verified
+   directory.
+3. `opencv-contrib-python` (pinned by PaddleX, a second `cv2` distribution) is removed by a uv
+   override. PaddleX's distribution-name checks are pointed at `opencv-python-headless`,
+   during import (41 modules decide at import time) and afterwards. A source search shows
+   PaddleX's OCR code uses no contrib-only OpenCV modules.
+4. These patches touch PaddleX internals, so they refuse to run on any version other than
+   the pinned PaddleX/PaddleOCR.
+
+Verified by tests: OCR inside a network namespace with no network interfaces, an audit hook
+that records zero socket connect/DNS attempts during import and OCR, and a probe proving the
+model manager refuses to resolve models. **PaddlePaddle is pinned to 3.2.2**, not 3.3.1:
+3.3.1's PIR + oneDNN executor fails on PP-OCRv5 detection
+(`ConvertPirAttribute2RuntimeAttribute`), and without oneDNN a page took 35 s instead of
+6.9 s (measured, same machine). `crc32c` (LGPL, optional in the Baidu SDK) is removed by
+override; `python-bidi` (LGPL, required by the recogniser), `certifi` and `tqdm` (MPL-2.0) are
+reviewed exceptions (THIRD_PARTY_NOTICES.md).
+
+### ADR-0021: Pinned, hash-verified models; text-line orientation model for English only (2026-10-22)
+`models.lock.json` pins 14 models (8 PaddleOCR, 6 `tessdata_best`) by source revision and
+per-file SHA-256. They are fetched only at staging (`make models`) with independent hash
+cross-checks, and verified again at runtime before first use. The owner accepted on
+2026-10-22 that vendors do not disclose training data (weights are Apache-2.0).
+**Finding:** the PP-LCNet text-line orientation classifier misreads upright Indic text as
+upside down and flips it. It flagged every upright Devanagari line (Hindi CER 0.897 with it,
+0.007 without; Marathi 0.887 vs 0.007) and 9 of 15 lines on a Tamil serif scan (CER 0.707;
+0.009 without). It is therefore used **only for English**, where it was validated: CER at or
+below 0.001 on every English corpus page, and upside-down pages detected and ordered
+correctly (`orientation_deg` = 180). Page orientation for Indic-script pages is not detected
+yet (OD-18), so upside-down Indic pages read poorly. Preprocessing still corrects 90°
+rotations for every script (ADR-0016).
+
+### ADR-0022: One engine interface; primary + fallback; compare, never merge (2026-10-22)
+All engines implement `OcrEngine` (`newgen_ocr/ocr/engine.py`) and return the same schema:
+lines with text, 0..1 confidence, pixel bbox (top-left origin) and an optional polygon,
+words and orientation. Each run records the engine version and the exact models
+(revision + file hashes). Policy:
+- Native-text PDF pages and blank pages are not OCRed.
+- OCR reads the requested profile's preprocessed image when one exists, else the source page
+  (`image_source`).
+- `auto`: primary engine (PaddleOCR) per page; the fallback (Tesseract) is used only when the
+  primary is unavailable or fails on that page, recorded as `fallback_from`/`fallback_reason`.
+  A named engine never falls back.
+- `compare`: also runs the secondary engine and stores its run. The per-page agreement
+  (1 − CER between the two engines' texts) below `NGOCR_OCR_DISAGREEMENT_THRESHOLD` (0.85)
+  sets `needs_review`.
+- **Results are never merged or voted** at character, word or line level. The result of
+  record is always a single engine's output for a page. A merge policy can be added later
+  only if it is defined and measured.
+
+- **Per-language primary** (`NGOCR_OCR_LANGUAGE_PRIMARY`, default `{"kn": "tesseract"}`):
+  for listed languages the engines swap roles (primary and fallback). Kannada is routed to
+  Tesseract because PaddleOCR's only Kannada model measured CER 0.388 against Tesseract's
+  0.013.
+- Engine output normalisation is limited to removing invisible word-final joiners
+  (Tesseract/Tamil). No other text rewriting happens at the engine layer.
+
+OCR runs synchronously in the request for now (ADR-0012).
+
 ## Open decisions (defaults in force until decided)
 
 | ID | Question | Default assumption |
 |---|---|---|
 | OD-1 | Production container base image | `ubuntu:24.04` + uv-provisioned Python 3.11, for parity with the target OS |
 | OD-2 | Queue broker | Valkey (BSD-3-Clause) |
-| OD-3 | Handwriting model | None selected. Candidates are license-reviewed in Phase 9; **stop and report** if none is clearly licensed |
-| OD-4 | PaddleOCR coverage for te/hi/ta/kn/mr on CPU | Unverified. Measured in Phase 5; no capability is claimed until measured |
-| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 4) |
+| OD-3 | Handwriting model | None selected. Candidates are license-reviewed in the handwriting phase; **stop and report** if none is clearly licensed |
+| OD-4 | PaddleOCR coverage for te/hi/ta/kn/mr on CPU | **Measured on the synthetic corpus (Phase 4)**: see ACCURACY_EVALUATION.md. Real-scan accuracy remains unmeasured |
+| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 5) |
 | OD-6 | API authentication | API keys (hashed in DB) for system integrations, plus session login for the review UI; OIDC optional later |
 | OD-7 | Test-client transport | Starlette warns that `httpx` is deprecated in favour of `httpx2`. Migration is held for approval (new dependency) |
 | OD-8 | GitHub Actions pinning | Pinned to major tags today; pin to commit SHAs before the first protected-branch merge |
 | OD-9 | Untracked empty `requirements.txt` | Left untouched; superseded by `requirements.in`/`.lock`. Propose deleting it |
 | OD-10 | Git remote is a placeholder (`YOUR_USERNAME`) | No pushes or commits until the owner authorizes them and sets the remote |
 | OD-11 | Dev host is Ubuntu 26.04, target is 24.04 | CI runs on `ubuntu-24.04`; containers will use a 24.04 base (OD-1) |
-| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 4 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
+| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 5 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
 | OD-13 | Retention of rejected uploads | Deleted immediately; only the audit event (sha256, size, code) remains. Alternative: a quarantine hold for security review |
 | OD-14 | Rotated PDF pages | `rotation` is recorded. Text bounding boxes are in unrotated page space with a top-left origin, while rendered images follow PDFium's display orientation. Reconcile in Phase 6 (layout) |
 | OD-15 | Upload spooling | Starlette spools multipart files over 1 MiB to `TMPDIR` before the handler runs (size-capped by the body limit). Default: set `TMPDIR` to a directory on the protected data volume in deployment |
 | OD-16 | Storage growth and retention | About 4–6 MB per scanned page at 300 DPI (about 40–60 GB/day at 10k pages/day). Default: none yet. Propose a retention period per tree (derived artefacts can be regenerated from originals) before Phase 10 |
+| OD-17 | Per-language engine choice | **Decided 2026-10-22 on measurement:** Kannada → Tesseract-primary (PaddleOCR CER 0.388 vs Tesseract 0.013). Others PaddleOCR-primary (see OD-21) |
+| OD-18 | Page-level 180° orientation for Indic scripts | Not detected (the text-line classifier is English-only, ADR-0021). Evaluate PaddleOCR's document-orientation classifier (`PP-LCNet_x1_0_doc_ori`) or Tesseract OSD |
+| OD-19 | OCR throughput vs 10k pages/day | About 6–7 s/page for PaddleOCR on a 2-core laptop (ACCURACY_EVALUATION.md). 10k pages/day is about 19 core-hours/day, so it must be measured on the reference server before sizing (Phase 10) |
+| OD-20 | Mixed-language pages | PaddleOCR recognises one script per call (first requested language); Tesseract accepts several (e.g. `hi+eng`). Default: first language decides the Paddle model; document-level language detection in the classification phase |
+| OD-21 | Should more languages default to Tesseract? | On the synthetic corpus Tesseract equals or beats PaddleOCR for every language and is about 3x faster, but the corpus favours Tesseract (clean font renders). Default: keep PaddleOCR primary except Kannada until a real-document evaluation set is measured; then decide per language |

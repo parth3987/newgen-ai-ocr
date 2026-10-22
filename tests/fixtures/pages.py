@@ -37,18 +37,27 @@ _WORDS = [
 ]
 
 
-def text_page(dpi: int = 200, ink: int = 0, background: int = 255, seed: int = 0) -> Gray:
-    """A4 page of text lines with ~0.14 inch glyphs and 1-inch margins."""
+def text_page_with_truth(
+    dpi: int = 200, ink: int = 0, background: int = 255, seed: int = 0
+) -> tuple[Gray, str]:
+    """A4 page of text lines with ~0.14 inch glyphs and 1-inch margins, plus its text."""
     width, height = round(8.27 * dpi), round(11.69 * dpi)
     rng = np.random.default_rng(seed)
     img = Image.new("L", (width, height), background)
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default(size=round(dpi * 0.14))
+    lines = []
     y = dpi
     while y < height - dpi:
-        draw.text((dpi, y), " ".join(rng.choice(_WORDS, size=11)), fill=ink, font=font)
+        line = " ".join(rng.choice(_WORDS, size=11))
+        draw.text((dpi, y), line, fill=ink, font=font)
+        lines.append(line)
         y += round(dpi * 0.25)
-    return np.asarray(img, dtype=np.uint8)
+    return np.asarray(img, dtype=np.uint8), "\n".join(lines)
+
+
+def text_page(dpi: int = 200, ink: int = 0, background: int = 255, seed: int = 0) -> Gray:
+    return text_page_with_truth(dpi, ink, background, seed)[0]
 
 
 def rotate(page: Gray, degrees_ccw: float) -> Gray:

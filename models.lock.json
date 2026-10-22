@@ -1,0 +1,303 @@
+{
+  "schema": 1,
+  "comment": "Pinned OCR model sources and SHA-256 per file. Fetched at staging by scripts/fetch_models.py; verified at runtime. See docs/MODEL_INVENTORY.md.",
+  "models": [
+    {
+      "id": "paddle/PP-OCRv5_mobile_det",
+      "engine": "paddleocr",
+      "name": "PP-OCRv5_mobile_det",
+      "kind": "detection",
+      "languages": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/PP-OCRv5_mobile_det",
+        "revision": "0d63e78e2b680928f6b1747d76a08db6e645efb7"
+      },
+      "dir": "paddle/PP-OCRv5_mobile_det",
+      "files": {
+        "inference.json": "05feef1acb00aa4cd7362b15f7f501fc4f99d7b1fa73c1c871e0c7b1504b0f5c",
+        "inference.pdiparams": "afa1820cb16c1fd0dad589d0f8b389139061c1ef6d68019685fd07be997dda5b",
+        "inference.yml": "98069072e1b6b37d727fd9d9f11725faa46d6ea0de012f2ed26caea011c37699"
+      }
+    },
+    {
+      "id": "paddle/PP-OCRv5_server_det",
+      "engine": "paddleocr",
+      "name": "PP-OCRv5_server_det",
+      "kind": "detection",
+      "languages": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/PP-OCRv5_server_det",
+        "revision": "ca867c897ecbca8873081573a802ad70d499cb94"
+      },
+      "dir": "paddle/PP-OCRv5_server_det",
+      "files": {
+        "inference.json": "af5876933d8806a1b50d895867e0781e135cd92ff37381992828fc8d1b842d28",
+        "inference.pdiparams": "183146fe9d9910352f68482f623bcbbb9fa7b9e8fa1463b9ad288cef00524d2d",
+        "inference.yml": "28fb721efc3634fc8aa677e474b9602cb815a91cf569ef357a7a553d7b3ce685"
+      }
+    },
+    {
+      "id": "paddle/PP-LCNet_x1_0_textline_ori",
+      "engine": "paddleocr",
+      "name": "PP-LCNet_x1_0_textline_ori",
+      "kind": "textline_orientation",
+      "languages": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/PP-LCNet_x1_0_textline_ori",
+        "revision": "cd237a44b0e359d4fe38310a416203cf7403faa5"
+      },
+      "dir": "paddle/PP-LCNet_x1_0_textline_ori",
+      "files": {
+        "inference.json": "b81929eeaff8e52db0fafb49c9fbfc5bc0572f81641fe0179cc52096323fb4d4",
+        "inference.pdiparams": "0de2bcf996cf553e2b848dd7b1769dafffc6917b1ccdf55c1d8efe7909fbf743",
+        "inference.yml": "8d5120d0e1a30a9df7ed46aa9119da3796ed066777089d1c1d705f132d5e90f9"
+      }
+    },
+    {
+      "id": "paddle/en_PP-OCRv5_mobile_rec",
+      "engine": "paddleocr",
+      "name": "en_PP-OCRv5_mobile_rec",
+      "kind": "recognition",
+      "languages": [
+        "en"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/en_PP-OCRv5_mobile_rec",
+        "revision": "267c36e24c331595590fe7bd72bde2436fd286f2"
+      },
+      "dir": "paddle/en_PP-OCRv5_mobile_rec",
+      "files": {
+        "inference.json": "fd1b6ec722ea841a72d3ba43e527df1d1066d5d7808e0503ee3eec7265188753",
+        "inference.pdiparams": "3ec8a97ed6cefe8568d3e2ee90bb193299b566a7661aa4fd52d224b96b59f66b",
+        "inference.yml": "27e91d0582f40168aa218303c76e184bc78fa7a5d105aad0cfbad8458b441067"
+      }
+    },
+    {
+      "id": "paddle/devanagari_PP-OCRv5_mobile_rec",
+      "engine": "paddleocr",
+      "name": "devanagari_PP-OCRv5_mobile_rec",
+      "kind": "recognition",
+      "languages": [
+        "hi",
+        "mr"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/devanagari_PP-OCRv5_mobile_rec",
+        "revision": "99dcce6d196bd4aaf268c7a5c72c3cc9f3ea4932"
+      },
+      "dir": "paddle/devanagari_PP-OCRv5_mobile_rec",
+      "files": {
+        "inference.json": "20d3b121184ec6b7de1705015022f4b22117990f6e5728a5d21c314bac9c1444",
+        "inference.pdiparams": "719be7d20bfe9530e2deae324c999e9911087496bce5e70846767c448d023a01",
+        "inference.yml": "9bd172dd26440c8ce94d1cde5d5baea6aefdc7cf3c5c8492e0beedef656d4e54"
+      }
+    },
+    {
+      "id": "paddle/te_PP-OCRv5_mobile_rec",
+      "engine": "paddleocr",
+      "name": "te_PP-OCRv5_mobile_rec",
+      "kind": "recognition",
+      "languages": [
+        "te"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/te_PP-OCRv5_mobile_rec",
+        "revision": "151ab3b1c2f2a058f07a944416b92e9eaec6bf36"
+      },
+      "dir": "paddle/te_PP-OCRv5_mobile_rec",
+      "files": {
+        "inference.json": "ad866e22872fbc0ee498b2c47d9537bd8f49f125353e43d82a4d173b595e6bfb",
+        "inference.pdiparams": "45967d00d6b4af590221733bf0d93791babc1feb17b98da401dba53d3cf110c9",
+        "inference.yml": "acebbe53f1831bf28ddfed75aedf58225d7aa5d09100c1d5a9140a2a53b137ce"
+      }
+    },
+    {
+      "id": "paddle/ta_PP-OCRv5_mobile_rec",
+      "engine": "paddleocr",
+      "name": "ta_PP-OCRv5_mobile_rec",
+      "kind": "recognition",
+      "languages": [
+        "ta"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/ta_PP-OCRv5_mobile_rec",
+        "revision": "1bb164dad1d8eb23c7f7a382827e5305b37868d4"
+      },
+      "dir": "paddle/ta_PP-OCRv5_mobile_rec",
+      "files": {
+        "inference.json": "9f845b15eef3272a47201fa0e411f8e466392b7dcfd705ade2890bf434b70370",
+        "inference.pdiparams": "7e7bb6c9cbcc401aeaceb0cdace485dbfcc15a410f299294e7c3123bbcbc68f0",
+        "inference.yml": "88a28f5a1bb30cabe38a0985cb5e6619fa4f0c7c78e57a08274674228c5219a6"
+      }
+    },
+    {
+      "id": "paddle/ka_PP-OCRv3_mobile_rec",
+      "engine": "paddleocr",
+      "name": "ka_PP-OCRv3_mobile_rec",
+      "kind": "recognition",
+      "languages": [
+        "kn"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/ka_PP-OCRv3_mobile_rec",
+        "revision": "fd08732bad5fb532cf883cb42a75ed139a72ab18"
+      },
+      "dir": "paddle/ka_PP-OCRv3_mobile_rec",
+      "files": {
+        "inference.json": "3be0576413bd881ed088dbaf7174c7a32fda9d000fa94cbf687727347fb123cc",
+        "inference.pdiparams": "5abb4f1c00e5fab314b06d55f69b137ee79bef3f59b547166a48e93bd530ff12",
+        "inference.yml": "948eb2cdc413b7754a3c41e1b4902fbab5478f0bb0f1b9d814f5b08c7bb51765"
+      }
+    },
+    {
+      "id": "tesseract/eng",
+      "engine": "tesseract",
+      "name": "tessdata_best/eng",
+      "kind": "recognition",
+      "languages": [
+        "en"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "github",
+        "repo": "tesseract-ocr/tessdata_best",
+        "revision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec"
+      },
+      "dir": "tesseract/tessdata",
+      "files": {
+        "eng.traineddata": "8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba"
+      }
+    },
+    {
+      "id": "tesseract/hin",
+      "engine": "tesseract",
+      "name": "tessdata_best/hin",
+      "kind": "recognition",
+      "languages": [
+        "hi"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "github",
+        "repo": "tesseract-ocr/tessdata_best",
+        "revision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec"
+      },
+      "dir": "tesseract/tessdata",
+      "files": {
+        "hin.traineddata": "bd2e65a2184af08a167b0be2439e91fa5edbc4394399ca2f692b843ae26e78d6"
+      }
+    },
+    {
+      "id": "tesseract/mar",
+      "engine": "tesseract",
+      "name": "tessdata_best/mar",
+      "kind": "recognition",
+      "languages": [
+        "mr"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "github",
+        "repo": "tesseract-ocr/tessdata_best",
+        "revision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec"
+      },
+      "dir": "tesseract/tessdata",
+      "files": {
+        "mar.traineddata": "799405456528ffd688bc8173ea9179c0646120436ac35099dccb175c4c70f652"
+      }
+    },
+    {
+      "id": "tesseract/tel",
+      "engine": "tesseract",
+      "name": "tessdata_best/tel",
+      "kind": "recognition",
+      "languages": [
+        "te"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "github",
+        "repo": "tesseract-ocr/tessdata_best",
+        "revision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec"
+      },
+      "dir": "tesseract/tessdata",
+      "files": {
+        "tel.traineddata": "81b0a1cfaf8bbf0f87da72b8c348264c6f24130766f5c4ade733fc20c05aaccc"
+      }
+    },
+    {
+      "id": "tesseract/tam",
+      "engine": "tesseract",
+      "name": "tessdata_best/tam",
+      "kind": "recognition",
+      "languages": [
+        "ta"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "github",
+        "repo": "tesseract-ocr/tessdata_best",
+        "revision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec"
+      },
+      "dir": "tesseract/tessdata",
+      "files": {
+        "tam.traineddata": "4b9ce85987f629dd31eaf87443a1646452a43cdf91fcf05e017382ad595dcb9e"
+      }
+    },
+    {
+      "id": "tesseract/kan",
+      "engine": "tesseract",
+      "name": "tessdata_best/kan",
+      "kind": "recognition",
+      "languages": [
+        "kn"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "github",
+        "repo": "tesseract-ocr/tessdata_best",
+        "revision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec"
+      },
+      "dir": "tesseract/tessdata",
+      "files": {
+        "kan.traineddata": "6f195e0f33f0ec5118c97eff777ed70ac453d67c32bf06a43f79dab875f8ebfe"
+      }
+    }
+  ]
+}

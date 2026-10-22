@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -27,3 +28,23 @@ def app(settings: Settings) -> FastAPI:
 def client(app: FastAPI) -> Iterator[TestClient]:
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MODELS_DIR = ROOT / "models"
+MODELS_LOCK = ROOT / "models.lock.json"
+
+
+def models_present() -> bool:
+    return (MODELS_DIR / "paddle" / "PP-OCRv5_mobile_det" / "inference.pdiparams").is_file()
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    skip_models = pytest.mark.skip(reason="OCR models not fetched (scripts/fetch_models.py)")
+    skip_tesseract = pytest.mark.skip(reason="tesseract binary not installed")
+    has_models, has_tesseract = models_present(), shutil.which("tesseract") is not None
+    for item in items:
+        if "models" in item.keywords and not has_models:
+            item.add_marker(skip_models)
+        if "tesseract" in item.keywords and not has_tesseract:
+            item.add_marker(skip_tesseract)

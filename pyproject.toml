@@ -50,14 +50,18 @@ packages = ["newgen_ocr"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-# pypdfium2 ships no type information; its use is confined to newgen_ocr.pdf.
-module = ["pypdfium2", "pypdfium2.*"]
+# These ship no type information; their use is confined to newgen_ocr.pdf / newgen_ocr.ocr.
+module = ["pypdfium2", "pypdfium2.*", "paddle", "paddle.*", "paddlex", "paddlex.*", "paddleocr", "paddleocr.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "models: needs OCR models fetched by scripts/fetch_models.py (auto-skipped if absent)",
+    "tesseract: needs the tesseract binary (auto-skipped if absent)",
+]
 pythonpath = ["src"]
 
 [tool.coverage.run]

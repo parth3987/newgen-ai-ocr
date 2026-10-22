@@ -4,6 +4,31 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 4: Primary OCR and engine adapters (2026-10-22)
+- `OcrEngine` protocol and engine-independent OCR schema (text, confidence, bbox, polygon,
+  words, orientation); runs record the engine version and exact model revisions and hashes.
+- PaddleOCR 3.7 adapter (PaddlePaddle 3.2.2, oneDNN) with an offline lockdown: model manager
+  disabled, explicit model dirs, offline flags, version-pinned patches (ADR-0020).
+- Tesseract 5 CLI adapter with `tessdata_best` and an explicit `--tessdata-dir`.
+- `models.lock.json` (14 models pinned by revision and SHA-256), `scripts/fetch_models.py`
+  with independent publisher-hash cross-checks, and runtime integrity verification (ADR-0021).
+- Text-line orientation model enabled for English only (measured to garble upright Indic
+  lines); upside-down English pages are detected and their lines ordered correctly.
+- OCR service: native/blank pages skipped, preprocessed image used when available,
+  primary→fallback per page, comparison with review flag, never merging (ADR-0022).
+- API: `GET /api/v1/ocr/engines`, `POST/GET /api/v1/documents/{id}/ocr[/{engine}|/comparison]`.
+- Evaluation: CER/WER metrics, a synthetic multilingual corpus (en/hi/mr/te/ta/kn; Noto fonts,
+  raqm shaping; clean/scan/low-res), `scripts/evaluate_ocr.py`, `make eval`, `make models`.
+- License checker parses SPDX expressions; weak-copyleft packages reviewed; uv overrides drop
+  `opencv-contrib-python` and `crc32c`.
+- Tests: offline OCR in a network namespace, audit-hook proof of zero network attempts,
+  model tamper and missing-model tests, fake-engine policy tests, real-engine accuracy smoke
+  tests (`models` / `tesseract` markers).
+- Per-language primary engine (`NGOCR_OCR_LANGUAGE_PRIMARY`); Kannada → Tesseract by
+  measurement. Tesseract TSV set via parameter (not an OS config file); non-TSV output is a
+  failure; word-final zero-width joiners removed.
+- Implementation plan renumbered: persistence and jobs move to Phase 5.
+
 ### Phase 3: Image preprocessing and quality assessment (2026-10-22)
 - Quality assessment for every page image, recorded in the manifest: blank, low/unknown
   resolution, blur, poor contrast, Gaussian and salt-and-pepper noise, uneven background,

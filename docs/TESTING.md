@@ -12,6 +12,8 @@ make licenses    # runtime license allowlist
 make secrets     # gitleaks (git history + working tree; needs Docker)
 make sbom        # CycloneDX SBOM -> reports/
 make bench       # CPU benchmark of assessment/preprocessing (docs/PERFORMANCE.md)
+make models      # STAGING (network): fetch + verify pinned OCR models into models/
+make eval        # OCR accuracy (CER/WER) + throughput on the synthetic corpus
 make check       # lint + typecheck + test + security + licenses
 ```
 
@@ -27,7 +29,7 @@ tests/
   fixtures/pages.py  synthetic A4 text pages and degradations: rotation, quarter turns,
                      Gaussian and salt-and-pepper noise, blur, fading, shadow, blank
   unit/              fast, no external services
-  integration/       HTTP API + real local storage (Phase 2); Postgres/Valkey [planned P4]
+  integration/       HTTP API + real local storage (Phase 2); Postgres/Valkey [planned P5]
   e2e/               upload → OCR → export on fixtures       [planned P5+]
 ```
 
@@ -47,6 +49,14 @@ tests/
   after deskew, flags clearing in `quality_after`), not just that a step ran.
 - Quality thresholds are calibrated on synthetic pages. Tests check both that each
   degradation is flagged and that milder variants are not.
+- **Markers:** `models` tests need `make models` (auto-skipped if models are absent);
+  `tesseract` tests need the `tesseract` binary (auto-skipped if missing). CI installs both.
+- **Offline proof:** `test_paddle_ocr_runs_with_no_network_namespace` runs OCR under
+  `unshare -rn` (no network interfaces) with an audit hook asserting zero socket
+  connect/DNS events; `test_paddlex_cannot_resolve_or_download_models` proves the model
+  manager refuses name-based resolution.
+- OCR service and API policy (fallback, comparison, skips, errors) are tested with
+  `tests/fixtures/ocr.py::FakeEngine`; real-engine behaviour is tested separately.
 - Accuracy measurement is separate from unit testing. See ACCURACY_EVALUATION.md.
 
 ## Known warnings

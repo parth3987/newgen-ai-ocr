@@ -1,7 +1,7 @@
 # Operations Runbook
 
 Status: development stage. Only the API process exists. Compose services, backups and
-recovery are added in Phase 4 and Phase 10.
+recovery are added in Phase 5 and Phase 10.
 
 ## Start / stop (development)
 
@@ -29,6 +29,16 @@ All variables use the `NGOCR_` prefix. See `.env.example`.
 | `NGOCR_DEFAULT_PREPROCESSING_PROFILE` | `standard` | Profile run after each upload (`none` disables) |
 | `NGOCR_CUSTOM_PREPROCESSING_PROFILES` | `[]` | JSON list of extra profiles (see API_SPECIFICATION.md) |
 | `NGOCR_OPENCV_THREADS` | OpenCV default | Threads per process; use `1` with multiple worker processes |
+| `NGOCR_MODELS_DIR` / `NGOCR_MODELS_LOCK` | `./models` / `./models.lock.json` | Local OCR models and their pinned hashes |
+| `NGOCR_OCR_PRIMARY_ENGINE` / `NGOCR_OCR_FALLBACK_ENGINE` | `paddle` / `tesseract` | Engine policy (ADR-0022); fallback may be null |
+| `NGOCR_OCR_DEFAULT_LANGUAGES` | `["en"]` | Used when a request gives no languages |
+| `NGOCR_OCR_LANGUAGE_PRIMARY` | `{"kn": "tesseract"}` | Per-language primary engine (engines swap roles) |
+| `NGOCR_PADDLE_DETECTION_MODEL` | `PP-OCRv5_mobile_det` | Or `PP-OCRv5_server_det` (slower) |
+| `NGOCR_PADDLE_ENABLE_MKLDNN` | `true` | oneDNN CPU acceleration (about 5x; needs PaddlePaddle 3.2.x) |
+| `NGOCR_OCR_CPU_THREADS` | engine default | Threads per OCR call |
+| `NGOCR_TESSERACT_CMD` | `tesseract` | Binary name or path |
+| `NGOCR_OCR_PAGE_TIMEOUT_S` | 300 | Tesseract per-page timeout |
+| `NGOCR_OCR_DISAGREEMENT_THRESHOLD` | 0.85 | Engine agreement below this flags a page for review |
 
 **Production startup fails** if the OpenCV build includes FFmpeg (the PyPI wheel) and
 `NGOCR_ENVIRONMENT=production`. Install the minimal source-built OpenCV wheel (ADR-0015).
@@ -66,7 +76,10 @@ is an orphan from a crash between the two commit steps. Report it before deletin
 | Startup `ValidationError` mentioning `NGOCR_…` | Invalid environment value | Compare against `.env.example` |
 | Need details of a 500 | Errors return only a generic message | Search logs for the response's `X-Request-ID` (`request_id` field) |
 | Upload rejected | See the `error.code` in the response | Codes are listed in API_SPECIFICATION.md. The audit log has a matching `document.rejected` event with sha256 |
-| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 4 moves processing to workers |
+| `GET /api/v1/ocr/engines` shows an engine unavailable | Models not fetched, or `tesseract` not installed | Run `make models` at staging; `apt install tesseract-ocr` |
+| `MODEL_INTEGRITY_ERROR` | A model file was changed or corrupted | Re-copy `models/` from the verified bundle; investigate as a security event |
+| First OCR call slow (about 10 s) | Model loading, once per language per process | Expected |
+| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 5 moves processing to workers |
 
 ## Logs
 
@@ -83,4 +96,4 @@ under `preprocessed/` after a crash can be deleted while the service is idle.
 
 ## Backups and recovery
 
-To be defined in Phase 4 (PostgreSQL dumps + `data/` volume snapshots) and drilled in Phase 10.
+To be defined in Phase 5 (PostgreSQL dumps + `data/` volume snapshots) and drilled in Phase 10.

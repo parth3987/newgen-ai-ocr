@@ -12,7 +12,7 @@ disabled (DECISIONS.md ADR-0005).
 - **Caching:** every response carries `Cache-Control: no-store` and
   `X-Content-Type-Options: nosniff`.
 - **Authentication:** not yet implemented (OD-6). Do not expose the service beyond a trusted
-  network until Phase 4 adds it.
+  network until Phase 5 adds it.
 - **Request size:** bodies larger than `NGOCR_MAX_UPLOAD_BYTES` + 64 KiB are refused with
   `413 FILE_TOO_LARGE`, either immediately (from Content-Length) or as soon as the streamed
   body exceeds the limit.
@@ -48,13 +48,21 @@ Messages never contain document content or submitted values.
 | `UNKNOWN_PROFILE` | 422 | Preprocessing profile name is not defined |
 | `PREPROCESSING_NOT_FOUND` | 404 | That profile has not been run for this document |
 | `PREPROCESSED_IMAGE_NOT_AVAILABLE` | 404 | The profile did not change this page (or skipped it); use the source page image |
+| `UNSUPPORTED_LANGUAGE` | 422 | Language not in `en, hi, mr, te, ta, kn`, or the chosen engine has no model for it |
+| `UNKNOWN_ENGINE` | 422 | Engine name is not `auto`, `paddle` or `tesseract` |
+| `OCR_ENGINE_UNAVAILABLE` | 503 | The engine (or every engine, for `auto`) cannot run: binary or models missing |
+| `MODEL_NOT_AVAILABLE` | 503 | A required model file is not present locally (models are never downloaded at runtime) |
+| `MODEL_INTEGRITY_ERROR` | 503 | A model file's SHA-256 does not match `models.lock.json` |
+| `OCR_FAILED` | 500 | The engine failed on a page (per-page in runs; see `error_code`) |
+| `OCR_TIMEOUT` | 504 | The engine exceeded `NGOCR_OCR_PAGE_TIMEOUT_S` (Tesseract) |
+| `OCR_RUN_NOT_FOUND` | 404 | No OCR run (or comparison) with that name for this document |
 
 Codes are stable: they are never renamed or reused.
 
 ## Health
 
 ### `GET /health/live`
-`200` → `{"status": "ok", "version": "0.3.0"}`. Performs no dependency checks.
+`200` → `{"status": "ok", "version": "0.4.0"}`. Performs no dependency checks.
 
 ### `GET /health/ready`
 `200` → `{"status": "ready", "checks": {"data_dir_writable": true}}`
@@ -203,3 +211,75 @@ and the source page images are untouched. `201` → `PreprocessingRun`.
 ### `GET /api/v1/documents/{document_id}/preprocessing/{profile}/pages/{page_number}/image`
 `200` → `image/png` (8-bit greyscale). Deskewed images are enlarged to avoid cropping.
 `404 PREPROCESSED_IMAGE_NOT_AVAILABLE | PAGE_NOT_FOUND | PREPROCESSING_NOT_FOUND`.
+
+## OCR
+
+OCR runs synchronously in the request for now (ADR-0012). Expect several seconds per page on
+CPU (docs/PERFORMANCE.md).
+
+### `GET /api/v1/ocr/engines`
+`200` → `[{"name": "paddle", "role": "primary", "available": true, "reason": null,
+"languages": ["en","hi","kn","mr","ta","te"]}, {"name": "tesseract", "role": "fallback", ...}]`
+
+### `POST /api/v1/documents/{document_id}/ocr`
+JSON body (all optional):
+
+| Field | Default | Meaning |
+|---|---|---|
+| `engine` | `"auto"` | `auto` (primary with per-page fallback; the primary is per language, e.g. Kannada → Tesseract), `paddle` or `tesseract` (no fallback) |
+| `languages` | `NGOCR_OCR_DEFAULT_LANGUAGES` (`["en"]`) | ISO 639-1 codes. PaddleOCR uses the first; Tesseract uses all |
+| `preprocessing_profile` | default profile | Read that profile's preprocessed images where they exist; otherwise source pages |
+| `compare` | `false` | Also run the secondary engine and store `ocr/comparison` |
+
+`201` → `OcrRun`, which replaces any earlier run stored under the same name (`auto`,
+`paddle` or `tesseract`):
+
+```json
+{"document_id": "…", "requested_engine": "auto",
+ "engines": [{"name": "paddle", "version": "paddleocr 3.7.0; paddlepaddle 3.2.2",
+              "models": [{"id": "paddle/PP-OCRv5_mobile_det", "revision": "0d63e78e…",
+                          "files": {"inference.pdiparams": "afa1820c…", "…": "…"}},
+                         {"id": "paddle/te_PP-OCRv5_mobile_rec", "…": "…"}],
+              "parameters": {"detection_model": "PP-OCRv5_mobile_det",
+                             "recognition_language": "te", "textline_orientation": false,
+                             "cpu_threads": 0, "enable_mkldnn": true}}],
+ "languages": ["te"], "preprocessing_profile": "standard",
+ "created_at": "…", "pipeline_version": "0.4.0",
+ "runtime": {"opencv_version": "4.14.0", "…": "…"}, "total_ms": 7012.4,
+ "pages": [
+   {"page_number": 1, "status": "skipped", "skip_reason": "native_text", "…": "…"},
+   {"page_number": 2, "status": "ok", "skip_reason": null, "error_code": null,
+    "engine": "paddle", "fallback_from": null, "fallback_reason": null,
+    "image_source": "preprocessed:standard", "image_width": 1240, "image_height": 1754,
+    "orientation_deg": null,
+    "lines": [{"text": "ఈ ఇన్వాయిస్ సరుకుల సరఫరాను నిర్ధారిస్తుంది.", "confidence": 0.9871,
+               "bbox": {"x0": 150.0, "y0": 148.0, "x1": 870.0, "y1": 190.0},
+               "polygon": [[150.0, 148.0], [870.0, 148.0], [870.0, 190.0], [150.0, 190.0]],
+               "words": null, "orientation_deg": null}],
+    "text": "ఈ ఇన్వాయిస్ …", "mean_confidence": 0.9812, "duration_ms": 6850.3}]}
+```
+
+| Field | Values |
+|---|---|
+| page `status` | `ok`, `empty` (engine found no text), `skipped` (`skip_reason`: `native_text`, `blank_page`, `no_page_image`), `failed` (`error_code`) |
+| `engine` / `fallback_from` / `fallback_reason` | Which engine produced the page result, and whether it was a fallback and why (error code or `primary_unavailable`) |
+| `image_source` | `source` or `preprocessed:<profile>`. Coordinates refer to this image |
+| `bbox`, `polygon` | Pixels, top-left origin, in `image_source` |
+| `confidence` | 0..1 as reported by the engine (PaddleOCR line score; Tesseract mean word confidence / 100). Not calibrated |
+| `orientation_deg` | Line: 0/180 from the text-line classifier (English only; `null` otherwise). Page: majority of lines; 180 means lines were ordered for the upright page |
+| `words` | Tesseract only: word boxes and confidences |
+
+Errors: `422 UNSUPPORTED_LANGUAGE | UNKNOWN_ENGINE | VALIDATION_ERROR`,
+`503 OCR_ENGINE_UNAVAILABLE | MODEL_NOT_AVAILABLE | MODEL_INTEGRITY_ERROR`, `404 DOCUMENT_NOT_FOUND`.
+
+### `GET /api/v1/documents/{document_id}/ocr`
+`200` → stored run names, e.g. `["auto", "tesseract"]`.
+
+### `GET /api/v1/documents/{document_id}/ocr/{engine}`
+`200` → `OcrRun`. `404 OCR_RUN_NOT_FOUND`.
+
+### `GET /api/v1/documents/{document_id}/ocr/comparison`
+`200` → `{"document_id", "primary", "secondary", "threshold": 0.85, "created_at",
+"pages": [{"page_number", "agreement", "needs_review", "reason"}]}`. `reason` is `agree`,
+`disagreement`, `engine_failed` or `skipped:<reason>`. Informational only: results are never
+merged (ADR-0022). `404 OCR_RUN_NOT_FOUND`.

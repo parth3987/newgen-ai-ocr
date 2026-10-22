@@ -11,12 +11,12 @@ EXCLUDE_NEWER  := $(shell date -u -d '14 days ago' +%Y-%m-%d)
 SECURITY_OVERRIDES := pillow=2026-10-22 certifi=2026-10-22
 UV_COMPILE     := uv pip compile --python-version $(PYTHON_VERSION) \
                   --python-platform x86_64-manylinux_2_28 --generate-hashes -q --upgrade \
-                  --exclude-newer $(EXCLUDE_NEWER) \
+                  --exclude-newer $(EXCLUDE_NEWER) --override overrides.txt \
                   $(foreach o,$(SECURITY_OVERRIDES),--exclude-newer-package $(o))
 GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.21.2
 REPORTS        := reports
 
-.PHONY: help venv lock lint format typecheck test security secrets licenses sbom bench check run clean
+.PHONY: help venv lock models lint format typecheck test security secrets licenses sbom bench eval check run clean
 
 help:
 	@grep -E '^[a-z]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -25,6 +25,9 @@ venv: ## Create .venv from the hash-pinned lock files
 	uv venv --clear --python $(PYTHON_VERSION) $(VENV)
 	uv pip sync --python $(BIN)/python --require-hashes requirements.lock requirements-dev.lock
 	uv pip install --python $(BIN)/python --no-deps -e .
+
+models: ## STAGING ONLY (network): fetch pinned OCR models into models/ and verify hashes
+	$(BIN)/python scripts/fetch_models.py
 
 lock: ## Re-resolve and hash-pin requirements*.lock (review the diff!)
 	$(UV_COMPILE) requirements.in -o requirements.lock
@@ -63,6 +66,9 @@ sbom: ## CycloneDX SBOM of runtime dependencies -> reports/
 
 bench: ## CPU benchmark of quality assessment and preprocessing (docs/PERFORMANCE.md)
 	$(BIN)/python scripts/benchmark_preprocessing.py --repeat 5
+
+eval: ## OCR accuracy + throughput on the synthetic baseline corpus (docs/ACCURACY_EVALUATION.md)
+	$(BIN)/python scripts/evaluate_ocr.py --build
 
 check: lint typecheck test security licenses ## Full local acceptance gate (plus `make secrets`)
 

@@ -74,3 +74,44 @@ services on local SSD:
   A retention policy is needed (OD-16).
 - Ingestion still holds the PDFium lock while assessing quality (ADR-0012), so PDFs are
   processed one at a time per process.
+
+## OCR throughput (Phase 4, 2026-10-22)
+
+Same laptop CPU (i5-7200U, 2 cores / 4 threads). PaddleOCR 3.7.0 on PaddlePaddle 3.2.2,
+`PP-OCRv5_mobile_det` plus a mobile recogniser, one process, default threads, synthetic A4
+pages with 16 text lines (`make eval`).
+
+| Condition (page DPI) | Mean s/page |
+|---|---|
+| clean (300 DPI) | 6.15 |
+| scan (200 DPI) | 3.89 |
+| lowres (150 DPI) | 2.64 |
+| all 36 pages | 4.23 (about 14 pages/min) |
+
+Model loading: 6–11 s on the first call per language per process (excluded above).
+
+PaddlePaddle backend and tuning, measured on one 200 DPI page with 39 lines:
+
+| Configuration | s/page |
+|---|---|
+| PaddlePaddle 3.3.1, oneDNN | fails (`ConvertPirAttribute2RuntimeAttribute`) |
+| PaddlePaddle 3.3.1 or 3.2.2, oneDNN off | 35–42 |
+| **PaddlePaddle 3.2.2, oneDNN, 4 threads** | **6.3** |
+| … default threads | 7.6 |
+| … 1 thread | 11.8 |
+| … recognition batch 16 (vs 6) | 10.4 |
+| … detection input capped at 1280 px | 6.3 (no gain) |
+| … plus text-line orientation model | 7.3 |
+
+Almost all time is inside Paddle inference: the cProfile measurement showed 99.5% in
+`paddle.base.libpaddle.run`. Recognition time scales with the number of text lines.
+
+**Sizing implication (OD-19):** at about 4–6 s/page on this laptop, 10,000 pages/day needs
+about 12–17 core-hours/day for OCR alone, which is several workers in parallel. This must be
+re-measured on the reference server (AVX-512, more cores) before capacity planning.
+### Tesseract
+
+Tesseract 5.5.0, one process, default OpenMP threads, same 36 pages: **1.37 s/page mean
+(about 44 pages/min)**, 0.9–1.9 s by language and condition. The first call per language
+costs about 1.2–1.8 s (model load). That is about 3x PaddleOCR's throughput on this
+hardware.

@@ -9,6 +9,8 @@ Layout under ``data_dir``::
     derived/<document_id>/text/0001.json     embedded PDF text with evidence
     derived/<document_id>/preprocessed/<profile>/run.json        preprocessing record
     derived/<document_id>/preprocessed/<profile>/pages/0001.png  preprocessed images
+    derived/<document_id>/ocr/<engine>.json                      OCR run (per requested engine)
+    derived/<document_id>/ocr/comparison.json                    engine cross-check
     audit/audit.jsonl                        append-only audit events
 
 Originals and derived artefacts live in separate trees. Derived output is built in a
@@ -33,10 +35,12 @@ from PIL import Image
 from newgen_ocr.errors import AppError, ErrorCode
 from newgen_ocr.ingestion.formats import EXTENSIONS, DocumentFormat
 from newgen_ocr.ingestion.models import DocumentManifest, PageText
+from newgen_ocr.ocr.models import OcrComparison, OcrRun
 from newgen_ocr.preprocessing.models import PreprocessingRun
 
 _DOCUMENT_ID = re.compile(r"^[0-9a-f]{32}$")
 _PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+_RUN_NAME = _PROFILE_NAME
 _DIR_MODE = 0o750
 _FILE_MODE = 0o640
 _ORIGINAL_MODE = 0o440
@@ -240,3 +244,36 @@ class DocumentStore:
                 "No preprocessed image for this page; use the source page image",
             )
         return self._run_dir(document_id, profile) / "pages" / f"{_page_name(page_number)}.png"
+
+    # ------------------------------------------------------------ OCR runs
+
+    def _ocr_dir(self, document_id: str) -> Path:
+        return self._document_dir(document_id) / "ocr"
+
+    def write_ocr_run(self, document_id: str, name: str, run: OcrRun) -> None:
+        if not _RUN_NAME.fullmatch(name):
+            raise ValueError(f"invalid OCR run name {name!r}")
+        root = self._ensure(self._ocr_dir(document_id))
+        _write_atomic(root / f"{name}.json", run.model_dump_json(indent=2).encode())
+
+    def list_ocr_runs(self, document_id: str) -> list[str]:
+        root = self._ocr_dir(document_id)
+        if not root.is_dir():
+            return []
+        return sorted(p.stem for p in root.glob("*.json") if p.stem != "comparison")
+
+    def read_ocr_run(self, document_id: str, name: str) -> OcrRun:
+        path = self._ocr_dir(document_id) / f"{name}.json"
+        if not _RUN_NAME.fullmatch(name) or name == "comparison" or not path.is_file():
+            raise AppError(ErrorCode.OCR_RUN_NOT_FOUND, "OCR run not found")
+        return OcrRun.model_validate_json(path.read_bytes())
+
+    def write_ocr_comparison(self, document_id: str, comparison: OcrComparison) -> None:
+        root = self._ensure(self._ocr_dir(document_id))
+        _write_atomic(root / "comparison.json", comparison.model_dump_json(indent=2).encode())
+
+    def read_ocr_comparison(self, document_id: str) -> OcrComparison:
+        path = self._ocr_dir(document_id) / "comparison.json"
+        if not path.is_file():
+            raise AppError(ErrorCode.OCR_RUN_NOT_FOUND, "No OCR comparison for this document")
+        return OcrComparison.model_validate_json(path.read_bytes())

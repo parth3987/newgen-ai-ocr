@@ -26,6 +26,12 @@ jobs:
       - name: Create environment from locks
         run: make venv
 
+      - name: System packages (Tesseract binary, Noto fonts for the evaluation corpus)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr fonts-noto-core
+
+      - name: Fetch pinned OCR models (staging step; hashes verified against models.lock.json)
+        run: make models
+
       - name: Lint
         run: make lint
 

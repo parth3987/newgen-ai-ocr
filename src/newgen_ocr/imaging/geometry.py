@@ -88,10 +88,10 @@ def estimate_skew(points: npt.NDArray[np.float64], rows: bool = True) -> SkewEst
     if len(points) < 100:
         return SkewEstimate(0.0, 0.0)
     coarse = np.arange(-MAX_SKEW_DEG, MAX_SKEW_DEG + 1e-9, _COARSE_STEP)
-    coarse_scores = np.array([_score(points, a, rows) for a in coarse])
+    coarse_scores = np.array([_score(points, float(a), rows) for a in coarse])
     best = float(coarse[int(np.argmax(coarse_scores))])
     fine = np.arange(best - _COARSE_STEP, best + _COARSE_STEP + 1e-9, _FINE_STEP)
-    fine_scores = np.array([_score(points, a, rows) for a in fine])
+    fine_scores = np.array([_score(points, float(a), rows) for a in fine])
     best_fine = float(fine[int(np.argmax(fine_scores))])
     median = float(np.median(coarse_scores))
     confidence = float(fine_scores.max()) / median if median > 0 else 0.0
