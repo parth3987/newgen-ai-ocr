@@ -37,3 +37,38 @@ htmlcov/
 build/
 *.egg-info/
 reports/
+
+# Python environments
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+
+# Secrets and environment variables
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OCR documents and temporary processing
+uploads/
+data/private/
+processed/
+temp/
+tmp/
+*.log
+
+# AI models and generated artifacts
+models/
+*.onnx
+*.pt
+*.pth
+*.safetensors
+
+# Development tools
+.vscode/
+.idea/
+.pytest_cache/
+.mypy_cache/
