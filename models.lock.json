@@ -340,6 +340,86 @@
       "files": {
         "osd.traineddata": "9cf5d576fcc47564f11265841e5ca839001e7e6f38ff7f7aacf46d15a96b00ff"
       }
+    },
+    {
+      "id": "paddle/PP-DocLayout_plus-L",
+      "engine": "paddleocr",
+      "name": "PP-DocLayout_plus-L",
+      "kind": "layout_detection",
+      "languages": [],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021, ADR-0025)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/PP-DocLayout_plus-L",
+        "revision": "aa52b8528c84f9b1a34ac3a88fe0e576edb9d11d"
+      },
+      "dir": "paddle/PP-DocLayout_plus-L",
+      "files": {
+        "inference.json": "99bd09c0a1b9e88d35c65c305b91711d98055fc94b4a6eecd50da02e04729384",
+        "inference.pdiparams": "24ca3e2e442164505e250deef59f7ee9a54ea12dd32875c9cd6155d959dc97da",
+        "inference.yml": "d60f782a16f96afb27e8280399899a94c3e9ffc694ffb2f913ea00af1c522f1e"
+      }
+    },
+    {
+      "id": "paddle/PP-DocLayout-M",
+      "engine": "paddleocr",
+      "name": "PP-DocLayout-M",
+      "kind": "layout_detection",
+      "languages": [],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021, ADR-0025)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/PP-DocLayout-M",
+        "revision": "7dbfcce3154a55776dc71ca026a4a2a8388dad8d"
+      },
+      "dir": "paddle/PP-DocLayout-M",
+      "files": {
+        "inference.json": "5b2ec6d403904d40b21ba261ad6d1a41e12e3fab256d075c1c7362d4742a8fb7",
+        "inference.pdiparams": "f374bb0269d91ab2eed393a5a2da6d73d98896ac5eeae4f9f585eba19bcbba74",
+        "inference.yml": "76aeb103310f432ea773d4a6d187e15b26d92c051c5e2875598e1d49f725d70d"
+      }
+    },
+    {
+      "id": "paddle/PP-LCNet_x1_0_table_cls",
+      "engine": "paddleocr",
+      "name": "PP-LCNet_x1_0_table_cls",
+      "kind": "table_classification",
+      "languages": [],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021, ADR-0025)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/PP-LCNet_x1_0_table_cls",
+        "revision": "2fa6323e7dab88fa883081db1460995f46af2922"
+      },
+      "dir": "paddle/PP-LCNet_x1_0_table_cls",
+      "files": {
+        "inference.json": "43401e76ed7b0e34787533016ea4ec9193d5b5964c3f948991fc5b531651ef33",
+        "inference.pdiparams": "d0224afd9cfddf22da17407c6c78491baaa1f25922fbb312c9b0d2037c802db0",
+        "inference.yml": "891b1f4b0ccddaf6aca0fce8c8a38e5ab5da9f62fb9adaa7c75e161ee03bb787"
+      }
+    },
+    {
+      "id": "paddle/SLANet_plus",
+      "engine": "paddleocr",
+      "name": "SLANet_plus",
+      "kind": "table_structure",
+      "languages": [],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021, ADR-0025)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/SLANet_plus",
+        "revision": "bae6e5f8c3c4e7da0c0b7639fdf3228fe76184e2"
+      },
+      "dir": "paddle/SLANet_plus",
+      "files": {
+        "inference.json": "aba91cd956f4a1648b0f89df94c3cf8acaa066b47e2b689d109843b40d8545a2",
+        "inference.pdiparams": "012986b0e2bfe90410618bfb4b7cf4fcb6c978caefd84c63c2934f8387b09ab8",
+        "inference.yml": "8a6372d3269a6f112fe13a2da7952a84da6e112c10a3146cbb43de5bd01d19fa"
+      }
     }
   ]
 }

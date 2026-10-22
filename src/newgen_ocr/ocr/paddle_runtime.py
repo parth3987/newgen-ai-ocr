@@ -13,6 +13,13 @@ and it:
 
 Steps 2-3 patch PaddleX internals, so they are tied to the exact pinned version and fail
 loudly on any other version.
+
+All Paddle model creation and inference must run through ``run_on_paddle_thread``: with
+oneDNN enabled, predictors used from more than one OS thread fail intermittently with
+``RuntimeError: std::exception`` and can return degraded results (measured: OCR from a new
+thread per call failed on 2 of 6 pages; never on one thread). FastAPI runs sync endpoints on
+a thread pool, so every Paddle call is confined to one dedicated thread per process
+(ADR-0020 addendum).
 """
 
 from __future__ import annotations
@@ -20,11 +27,12 @@ from __future__ import annotations
 import importlib.metadata
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
-from typing import Any, NoReturn
+from typing import Any, NoReturn, TypeVar
 
 PINNED_PADDLEX = "3.7.2"
 PINNED_PADDLEOCR = "3.7.0"
@@ -42,6 +50,16 @@ _OFFLINE_ENV = {
 
 _lock = threading.Lock()
 _module: ModuleType | None = None
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="paddle")
+
+T = TypeVar("T")
+
+
+def run_on_paddle_thread(fn: Callable[..., T], *args: Any) -> T:
+    """Run ``fn(*args)`` on the process's single Paddle thread and return its result."""
+    if threading.current_thread().name.startswith("paddle"):
+        return fn(*args)  # already on the Paddle thread (nested call)
+    return _executor.submit(fn, *args).result()
 
 
 class OfflineModelResolutionError(RuntimeError):

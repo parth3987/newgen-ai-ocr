@@ -64,7 +64,7 @@ Containers will also set `OTEL_SDK_DISABLED=true`.
 
 ### ADR-0009: Separate liveness and readiness probes (2026-10-22)
 `/health/live` performs no I/O (it is for restart decisions). `/health/ready` checks the
-dependencies needed to accept work (currently `data_dir`; DB and broker are added in Phase 6)
+dependencies needed to accept work (currently `data_dir`; DB and broker are added in Phase 7)
 and returns 503 with per-check results when any check fails.
 
 ### ADR-0010: Approved formats detected by signature (2026-10-22)
@@ -88,13 +88,13 @@ unnecessary OCR on image-heavy digital pages for never silently losing scanned c
 Thresholds are named constants and will be tuned against the evaluation set (Phase 5).
 
 ### ADR-0012: Synchronous ingestion with a global PDFium lock (temporary) (2026-10-22)
-Until the job queue exists (Phase 6), `POST /api/v1/documents` ingests synchronously in
+Until the job queue exists (Phase 7), `POST /api/v1/documents` ingests synchronously in
 FastAPI's thread pool. PDFium is not thread-safe, so all PDFium use is serialised by
 `PDFIUM_LOCK`. Throughput is therefore limited to one PDF at a time per process, which is
 acceptable for development and must not be used for production volumes.
 
 ### ADR-0013: Filesystem document store and manifests as the metadata record (2026-10-22)
-Until PostgreSQL arrives (Phase 6), `derived/<id>/manifest.json` is the system of record for
+Until PostgreSQL arrives (Phase 7), `derived/<id>/manifest.json` is the system of record for
 document metadata. Originals (`originals/`, mode 0440) are stored separately from derived
 artefacts (`derived/`). Derived output is built in `staging/` and renamed into place
 atomically, with the manifest included. Client filenames never touch the filesystem. Document
@@ -105,7 +105,7 @@ recorded so they can be deduplicated later).
 `audit/audit.jsonl` records `document.accepted` and `document.rejected` with request id,
 actor (`anonymous` until auth exists), sha256, size, format, page counts and error code,
 never filenames or content. Each line is appended with `O_APPEND` and fsync. It moves to a
-database table in Phase 6, with the file kept as a tamper-evident export.
+database table in Phase 7, with the file kept as a tamper-evident export.
 
 ### ADR-0015: OpenCV supplied as a minimal source build in production (2026-10-22)
 Decided by the project owner. The PyPI `opencv-python-headless` 4.14.0.94 wheel loads 16
@@ -119,7 +119,7 @@ only the modules we need (core, imgproc, photo), without FFmpeg/videoio/OpenSSL.
 published as an internal hash-pinned wheel that also satisfies PaddleOCR's `cv2`
 requirement. Development and CI use the PyPI wheel. **Enforcement:** `create_app` refuses
 to start with `NGOCR_ENVIRONMENT=production` if `cv2.getBuildInformation()` reports
-`FFMPEG: YES` (`newgen_ocr/imaging/runtime.py`, tested). The build itself is a Phase 6/10 task.
+`FFMPEG: YES` (`newgen_ocr/imaging/runtime.py`, tested). The build itself is a Phase 7/10 task.
 
 ### ADR-0016: Orientation and skew by projection profiles; 180° resolved at OCR (2026-10-22)
 Skew is the angle that maximises the sharpness of the ink projection profile (coarse 0.5°
@@ -278,6 +278,49 @@ the handwriting recogniser against 0.005 for the printed recogniser. On some inp
 English word spaces (a Chinese-centric model), so it is not an improvement on this proxy.
 Real-handwriting performance is unknown (OD-23).
 
+### ADR-0025: Layout and tables from PaddleOCR layout models, verified by page evidence (2026-10-23)
+Components approved by the owner on 2026-10-23 after a CPU measurement on a probe page:
+`PP-DocLayout_plus-L` (default; `PP-DocLayout-M` selectable), `PP-LCNet_x1_0_table_cls` and
+`SLANet_plus`, loaded through the same offline lockdown (ADR-0020) and hash-verified store.
+Layout is a separate stage that reads a stored OCR run (`POST .../layout`), so it works with
+every engine (including Tesseract for Kannada) and its coordinates are those of the OCR image.
+Design rules:
+1. **No OCR line is altered or dropped.** Each line belongs to the region covering at least
+   half of it (tables first; the smaller region on a tie); lines outside every region become
+   `unclassified` regions and route the page to review.
+2. **Table structure is never repaired by guessing.** SLANet's HTML tokens are parsed into a
+   grid; a non-rectangular grid, overlapping spans or a cell/box count mismatch makes the
+   table `unsupported` (no cells; text kept in the region).
+3. **Wired tables are cross-checked deterministically**: ruling lines are traced into closed
+   cells (OpenCV morphology) and must give exactly the model's rows, columns and spans. When
+   they do (`verified`), the traced cell interiors replace SLANet's approximate boxes for
+   text assignment; a disagreement routes the table to review.
+4. **Wireless tables are checked against the OCR lines**: two lines side by side with a wide
+   gap in one cell, or a cell boundary cutting through ink inside a line, mean a wrong column
+   split (`table_structure_mismatch`).
+5. A page line spanning cells, and a cell the page OCR left empty, are re-read from the cell
+   crop with the same engine and languages (`text_source: cell_ocr`); a cell that still has
+   no text but holds marks routes the table to review (`table_cell_unread`).
+6. **Reading order** is a recursive XY-cut (vertical cuts first; aligned bands of multi-line
+   blocks kept together), with headers first and footers / page numbers last.
+7. **Key-value pairs** only from explicit evidence: "Key: value" on one line, or a two-column
+   table row. No word coordinates are estimated.
+8. Formulas, charts and seals are recorded as `unsupported` structures; text inside a figure
+   is returned without structure.
+Measured on the synthetic layout set (ACCURACY_EVALUATION.md): 24 of 26 tables detected, 23
+with exact structure, **0 wrong structures returned without review**. Not supported yet:
+native-text PDF pages (OD-25), tables without any rules (detected as text, OD-26), tables
+continuing across pages, nested tables, rotated tables.
+
+**Addendum to ADR-0020 (2026-10-23): one Paddle thread per process.** With oneDNN, Paddle
+predictors used from several OS threads failed intermittently (`RuntimeError:
+std::exception`) and once returned degraded OCR (4 lines instead of 16) without error;
+measured: OCR from a new thread per call failed on 2 of 6 pages, never on one thread, never
+without oneDNN. FastAPI runs sync endpoints on a thread pool, so this affected Phases 4-5 as
+well. All Paddle model creation and inference now runs on a single dedicated thread
+(`paddle_runtime.run_on_paddle_thread`); calls were already serialised, so throughput is
+unchanged. Regression test: `test_paddle_calls_from_many_threads`.
+
 ## Open decisions (defaults in force until decided)
 
 | ID | Question | Default assumption |
@@ -286,16 +329,16 @@ Real-handwriting performance is unknown (OD-23).
 | OD-2 | Queue broker | Valkey (BSD-3-Clause) |
 | OD-3 | Handwriting model | None selected. Candidates are license-reviewed in the handwriting phase; **stop and report** if none is clearly licensed |
 | OD-4 | PaddleOCR coverage for te/hi/ta/kn/mr on CPU | **Measured on the synthetic corpus (Phase 4)**: see ACCURACY_EVALUATION.md. Real-scan accuracy remains unmeasured |
-| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 6) |
+| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 7) |
 | OD-6 | API authentication | API keys (hashed in DB) for system integrations, plus session login for the review UI; OIDC optional later |
 | OD-7 | Test-client transport | Starlette warns that `httpx` is deprecated in favour of `httpx2`. Migration is held for approval (new dependency) |
 | OD-8 | GitHub Actions pinning | Pinned to major tags today; pin to commit SHAs before the first protected-branch merge |
 | OD-9 | Untracked empty `requirements.txt` | Left untouched; superseded by `requirements.in`/`.lock`. Propose deleting it |
 | OD-10 | Git remote is a placeholder (`YOUR_USERNAME`) | No pushes or commits until the owner authorizes them and sets the remote |
 | OD-11 | Dev host is Ubuntu 26.04, target is 24.04 | CI runs on `ubuntu-24.04`; containers will use a 24.04 base (OD-1) |
-| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 6 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
+| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 7 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
 | OD-13 | Retention of rejected uploads | Deleted immediately; only the audit event (sha256, size, code) remains. Alternative: a quarantine hold for security review |
-| OD-14 | Rotated PDF pages | `rotation` is recorded. Text bounding boxes are in unrotated page space with a top-left origin, while rendered images follow PDFium's display orientation. Reconcile in Phase 6 (layout) |
+| OD-14 | Rotated PDF pages | `rotation` is recorded. Text bounding boxes are in unrotated page space with a top-left origin, while rendered images follow PDFium's display orientation. Layout (Phase 6) works in OCR-image coordinates, so it is unaffected; reconcile together with OD-25 |
 | OD-15 | Upload spooling | Starlette spools multipart files over 1 MiB to `TMPDIR` before the handler runs (size-capped by the body limit). Default: set `TMPDIR` to a directory on the protected data volume in deployment |
 | OD-16 | Storage growth and retention | About 4–6 MB per scanned page at 300 DPI (about 40–60 GB/day at 10k pages/day). Default: none yet. Propose a retention period per tree (derived artefacts can be regenerated from originals) before Phase 10 |
 | OD-17 | Per-language engine choice | **Decided 2026-10-22 on measurement:** Kannada → Tesseract-primary (PaddleOCR CER 0.388 vs Tesseract 0.013). Others PaddleOCR-primary (see OD-21) |
@@ -306,3 +349,6 @@ Real-handwriting performance is unknown (OD-23).
 | OD-22 | Better English handwriting recogniser | `PP-OCRv5_server_rec` underperformed the printed model on the synthetic proxy and drops word spaces. Candidates to evaluate on real samples: `PP-OCRv6_medium_rec` (Apache-2.0, claims handwritten English). TrOCR remains excluded (IAM non-commercial training data) |
 | OD-23 | Real handwriting evaluation set | Owner to supply consented samples (`evaluation/handwriting/README.md`; at least 30 pages from 5 writers per language). Until then, handwriting stays experimental (English) or unsupported (Indian scripts) |
 | OD-24 | Sideways pages in auto mode without preprocessing | OSD could not orient 4 sideways Marathi scans, which become `script_uncertain`. The default `standard` preprocessing turns 90° pages upright first; consider trying the census on 90° rotations when OSD is undetermined |
+| OD-25 | Layout of native-text PDF pages | Not OCRed, so they have no page image or OCR lines: layout returns them `skipped: native_text`. Proposal: render them for layout and use the embedded text segments as lines (needs OD-14) |
+| OD-26 | Tables without any rules | Not detected as tables by PP-DocLayout on the test set (2 of 2 missed); their text is returned as text regions in row order and the page is routed to review. Candidate: a whitespace-alignment detector, or a real-document test of `PP-DocLayout-L` |
+| OD-27 | Real-document layout and table test set | Synthetic only (ACCURACY_EVALUATION.md). Default: build one from consented real documents (invoices, statements, forms) with cell-level ground truth before relying on table output in production; PubTabNet/FinTabNet (CDLA-Permissive) are options for printed English tables |

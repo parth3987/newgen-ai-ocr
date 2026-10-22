@@ -12,6 +12,11 @@ scanned PDFs and handwriting recognition.
 
 ## Status
 
+Phase 6 (layout, tables and document structure) is complete: layout regions, reading order
+for multi-column pages, headers/footers, table structure with merged cells (verified against
+ruling lines on ruled tables), evidence-only key-value pairs and an inspection overlay, all
+offline. Unsupported structures are recorded and routed to review, never invented (see
+[ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md); synthetic test set so far).
 Phase 5 (language and handwriting support) is complete: per-page script identification
 (`languages: ["auto"]`), mixed Indian-script/English pages, a review path for unsupported or
 uncertain pages, and experimental English handwriting (see
@@ -20,8 +25,8 @@ embedded text from native PDF pages, assesses and preprocesses scanned pages, an
 PaddleOCR (primary; Tesseract for Kannada) or Tesseract (baseline/fallback) fully offline with pinned,
 hash-verified models for English, Hindi, Marathi, Telugu, Tamil and Kannada. Accuracy and
 throughput have been measured only on a synthetic corpus so far (see
-[ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md)). Field extraction, layout and review are
-still to come. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+[ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md)). Persistence and jobs, field extraction and
+the review UI are still to come. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start
 
@@ -30,13 +35,14 @@ Requirements: [uv](https://docs.astral.sh/uv/), GNU make, `tesseract-ocr` (apt);
 
 ```bash
 make venv              # Python 3.11 venv from hash-pinned locks
-make models            # staging only: fetch + verify pinned OCR models (~198 MB)
+make models            # staging only: fetch + verify pinned OCR/layout models (~450 MB)
 make check             # lint, types, tests, security, licenses
 make run               # API on http://127.0.0.1:8000
 curl localhost:8000/health/ready
 curl -F file=@document.pdf -F profile=standard localhost:8000/api/v1/documents
 curl -X POST -H 'Content-Type: application/json' -d '{"languages":["te"]}' \
      localhost:8000/api/v1/documents/<document_id>/ocr
+curl -X POST localhost:8000/api/v1/documents/<document_id>/layout   # tables, reading order
 ```
 
 Configuration: see [.env.example](.env.example).

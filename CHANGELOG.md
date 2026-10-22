@@ -4,6 +4,27 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 6: Layout, tables and document structure (2026-10-23)
+- Layout stage over a stored OCR run (`POST/GET /api/v1/documents/{id}/layout`,
+  `GET /api/v1/layout/status`): typed regions (title, text, header, footer, page number,
+  table, figure, formula, …), XY-cut reading order for multi-column pages, column count,
+  page text in reading order. Every OCR line is kept; text outside regions is `unclassified`.
+- Tables: PP-LCNet wired/wireless classifier + SLANet_plus structure (rows, columns,
+  rowspan/colspan, header rows), grid + HTML output, cell text from OCR lines with line links.
+  Wired tables are verified against traced ruling lines (exact cell boxes when verified);
+  wireless tables are checked against the OCR lines; cells are re-read from crops when a line
+  spans cells or page OCR missed them; invalid structures are `unsupported`, never repaired.
+- Evidence-only key-value pairs ("Key: value" lines, two-column table rows).
+- Inspection overlay PNG; 9 layout review reasons; `unsupported` structures list.
+- New pinned models: `PP-DocLayout_plus-L` (default), `PP-DocLayout-M`,
+  `PP-LCNet_x1_0_table_cls`, `SLANet_plus`. The fetch script now cross-checks Hugging Face
+  config files against their git-blob hashes (all Paddle models re-verified).
+- Synthetic layout test set and `scripts/evaluate_layout.py` (`make eval-layout`).
+- **Fixed:** Paddle predictors (oneDNN) failed intermittently, and once silently degraded OCR,
+  when the API called them from different worker threads (Phases 4–5 affected). All Paddle
+  calls now run on one dedicated thread per process.
+- Implementation plan renumbered: persistence and jobs move to Phase 7.
+
 ### Phase 5: Language and handwriting support (2026-10-23)
 - Supported-language matrix (`ocr/languages.py`, `GET /api/v1/languages`,
   docs/LANGUAGE_SUPPORT.md); PaddleOCR disabled for Kannada by measurement.

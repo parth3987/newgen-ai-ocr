@@ -13,11 +13,13 @@ from newgen_ocr import __version__
 from newgen_ocr.api.body_limit import BodySizeLimitMiddleware
 from newgen_ocr.api.errors import register_error_handlers
 from newgen_ocr.api.middleware import request_context_middleware
-from newgen_ocr.api.routes import documents, health, ocr, preprocessing
+from newgen_ocr.api.routes import documents, health, layout, ocr, preprocessing
 from newgen_ocr.audit import AuditLog
 from newgen_ocr.config import Settings, get_settings
 from newgen_ocr.imaging.runtime import check_opencv_build, configure_opencv
 from newgen_ocr.ingestion.service import IngestionService
+from newgen_ocr.layout.detector import PaddleLayoutModels
+from newgen_ocr.layout.service import LayoutPolicy, LayoutService
 from newgen_ocr.logging_config import configure_logging
 from newgen_ocr.ocr.engine import OcrEngine
 from newgen_ocr.ocr.model_store import ModelStore
@@ -87,10 +89,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.store = store
     app.state.ingestion = IngestionService(settings, store, audit)
     app.state.preprocessing = PreprocessingService(store, audit, settings.preprocessing_profiles)
+    engines = build_engines(settings)
     app.state.ocr = OcrService(
         store,
         audit,
-        build_engines(settings),
+        engines,
         primary=settings.ocr_primary_engine,
         fallback=settings.ocr_fallback_engine,
         disagreement_threshold=settings.ocr_disagreement_threshold,
@@ -107,6 +110,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             handwriting_verified=frozenset(settings.ocr_handwriting_verified_languages),
         ),
     )
+    app.state.layout = LayoutService(
+        store,
+        audit,
+        PaddleLayoutModels(
+            ModelStore(settings.models_dir, settings.models_lock),
+            cache_dir=settings.data_dir / "cache" / "paddlex",
+            layout_model=settings.layout_model,
+            score_threshold=settings.layout_score_threshold,
+            cpu_threads=settings.ocr_cpu_threads,
+            enable_mkldnn=settings.paddle_enable_mkldnn,
+        ),
+        engines,
+        LayoutPolicy(
+            min_table_score=settings.layout_min_table_score,
+            ruling_check=settings.layout_ruling_check,
+        ),
+    )
 
     # Starlette runs the last-added middleware first: request context wraps the body limit.
     app.add_middleware(
@@ -118,6 +138,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents.router)
     app.include_router(preprocessing.router)
     app.include_router(ocr.router)
+    app.include_router(layout.router)
 
     logger.info(
         "application created",

@@ -11,6 +11,7 @@ Layout under ``data_dir``::
     derived/<document_id>/preprocessed/<profile>/pages/0001.png  preprocessed images
     derived/<document_id>/ocr/<engine>.json                      OCR run (per requested engine)
     derived/<document_id>/ocr/comparison.json                    engine cross-check
+    derived/<document_id>/layout/<ocr_run>.json                  layout + tables of an OCR run
     audit/audit.jsonl                        append-only audit events
 
 Originals and derived artefacts live in separate trees. Derived output is built in a
@@ -35,6 +36,7 @@ from PIL import Image
 from newgen_ocr.errors import AppError, ErrorCode
 from newgen_ocr.ingestion.formats import EXTENSIONS, DocumentFormat
 from newgen_ocr.ingestion.models import DocumentManifest, PageText
+from newgen_ocr.layout.models import LayoutRun
 from newgen_ocr.ocr.models import OcrComparison, OcrRun
 from newgen_ocr.preprocessing.models import PreprocessingRun
 
@@ -277,3 +279,26 @@ class DocumentStore:
         if not path.is_file():
             raise AppError(ErrorCode.OCR_RUN_NOT_FOUND, "No OCR comparison for this document")
         return OcrComparison.model_validate_json(path.read_bytes())
+
+    # ------------------------------------------------------------ layout runs
+
+    def _layout_dir(self, document_id: str) -> Path:
+        return self._document_dir(document_id) / "layout"
+
+    def write_layout_run(self, document_id: str, run: LayoutRun) -> None:
+        if not _RUN_NAME.fullmatch(run.ocr_run):
+            raise ValueError(f"invalid OCR run name {run.ocr_run!r}")
+        root = self._ensure(self._layout_dir(document_id))
+        _write_atomic(root / f"{run.ocr_run}.json", run.model_dump_json(indent=2).encode())
+
+    def list_layout_runs(self, document_id: str) -> list[str]:
+        root = self._layout_dir(document_id)
+        if not root.is_dir():
+            return []
+        return sorted(p.stem for p in root.glob("*.json"))
+
+    def read_layout_run(self, document_id: str, ocr_run: str) -> LayoutRun:
+        path = self._layout_dir(document_id) / f"{ocr_run}.json"
+        if not _RUN_NAME.fullmatch(ocr_run) or not path.is_file():
+            raise AppError(ErrorCode.LAYOUT_RUN_NOT_FOUND, "Layout run not found")
+        return LayoutRun.model_validate_json(path.read_bytes())

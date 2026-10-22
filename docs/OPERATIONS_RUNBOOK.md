@@ -1,7 +1,7 @@
 # Operations Runbook
 
 Status: development stage. Only the API process exists. Compose services, backups and
-recovery are added in Phase 6 and Phase 10.
+recovery are added in Phase 7 and Phase 10.
 
 ## Start / stop (development)
 
@@ -42,6 +42,10 @@ All variables use the `NGOCR_` prefix. See `.env.example`.
 | `NGOCR_OCR_DETECT_ORIENTATION` | `true` | OSD orientation correction even with explicit languages (about 1 s/page) |
 | `NGOCR_OCR_MIN_PAGE_CONFIDENCE` / `NGOCR_OCR_MIN_LINE_CONFIDENCE` | 0.85 / 0.70 | Review thresholds (heuristic, LANGUAGE_SUPPORT.md) |
 | `NGOCR_OCR_HANDWRITING_VERIFIED_LANGUAGES` | `[]` | Languages whose handwriting is verified on real samples; empty = always review |
+| `NGOCR_LAYOUT_MODEL` | `PP-DocLayout_plus-L` | Or `PP-DocLayout-M` (about 5x faster, more pages routed to review) |
+| `NGOCR_LAYOUT_SCORE_THRESHOLD` | 0.5 | Layout regions scored below this are discarded (their text becomes `unclassified`) |
+| `NGOCR_LAYOUT_MIN_TABLE_SCORE` | 0.90 | SLANet structure score below this routes a table to review |
+| `NGOCR_LAYOUT_RULING_CHECK` | `true` | Cross-check wired tables against traced ruling lines (ADR-0025); keep on |
 
 **Production startup fails** if the OpenCV build includes FFmpeg (the PyPI wheel) and
 `NGOCR_ENVIRONMENT=production`. Install the minimal source-built OpenCV wheel (ADR-0015).
@@ -57,6 +61,8 @@ data/staging/      derived output under construction (normally empty)
 data/originals/    accepted originals, read-only (0440)
 data/derived/      manifest.json, pages/NNNN.png, text/NNNN.json per document
                    preprocessed/<profile>/run.json + pages/NNNN.png per profile run
+                   ocr/<engine>.json, ocr/comparison.json per OCR run
+                   layout/<ocr_run>.json per layout run
 data/audit/        audit.jsonl
 ```
 
@@ -82,7 +88,11 @@ is an orphan from a crash between the two commit steps. Report it before deletin
 | `GET /api/v1/ocr/engines` shows an engine unavailable | Models not fetched, or `tesseract` not installed | Run `make models` at staging; `apt install tesseract-ocr` |
 | `MODEL_INTEGRITY_ERROR` | A model file was changed or corrupted | Re-copy `models/` from the verified bundle; investigate as a security event |
 | First OCR call slow (about 10 s) | Model loading, once per language per process | Expected |
-| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 6 moves processing to workers |
+| `GET /api/v1/layout/status` shows `available: false` | Layout/table models not fetched | Run `make models` at staging |
+| `LAYOUT_FAILED` on a page | Image no longer matches the OCR run (e.g. the preprocessing run was replaced after OCR), or a model error (`layout model failed` log with `error_type`) | Re-run OCR, then layout; report repeated model errors |
+| A layout looks wrong | Inspect `GET .../layout/{ocr_run}/pages/{n}/overlay` (regions, reading order, cells, review flags) | Route to review; collect the page for the real-document test set (OD-27) |
+| Intermittent `RuntimeError: std::exception` from Paddle | Paddle called from more than one thread (fixed: ADR-0020 addendum) | Must not recur; report with the request ID |
+| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 7 moves processing to workers |
 
 ## Logs
 

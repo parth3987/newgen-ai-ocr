@@ -22,9 +22,11 @@ with outbound network access blocked. No external LLM, hosted OCR or inference A
 
 ## 2. Processing pipeline
 
-Stages up to and including printed-text OCR are **implemented** (Phases 2–4, synchronous,
-see ADR-0012). Handwriting, layout/table reconstruction, field extraction and later stages are
-planned. Language is currently supplied by the caller; automatic language detection is planned.
+Stages up to and including layout and table reconstruction are **implemented** (Phases 2–6,
+synchronous, see ADR-0012): script/language identification and experimental English
+handwriting (Phase 5), and layout, reading order, tables and key-value pairs derived from a
+stored OCR run (Phase 6, ADR-0025). Document classification, field extraction and later
+stages are planned. All Paddle inference runs on one thread per process (ADR-0020 addendum).
 
 ```
 upload → file validation + quarantine → PDF text extraction or page rendering
@@ -97,8 +99,8 @@ src/newgen_ocr/
     service.py         per-document runs, storage, audit                 [implemented P3]
     models.py          PreprocessingRun / PagePreprocessing / StepRecord [implemented P3]
   storage/local.py     originals / derived / staging / quarantine        [implemented P2]
-  db/                  SQLAlchemy models, Alembic migrations             [planned P6]
-  worker/              Celery app + idempotent tasks                     [planned P6]
+  db/                  SQLAlchemy models, Alembic migrations             [planned P7]
+  worker/              Celery app + idempotent tasks                     [planned P7]
   ocr/
     engine.py          OcrEngine protocol, reading order, page orientation [implemented P4]
     models.py          OcrLine / OcrPage / OcrRun / OcrComparison schema   [implemented P4]
@@ -114,9 +116,18 @@ src/newgen_ocr/
   evaluation/
     metrics.py         CER / WER / agreement (vectorised Levenshtein)      [implemented P4]
     corpus.py          synthetic multilingual corpus with ground truth     [implemented P4]
+    layout_corpus.py   synthetic table/layout pages with exact ground truth [implemented P6]
+    layout_metrics.py  table association F1, reading order, KV scores     [implemented P6]
     (field metrics)                                                       [planned]
-  classification/      document type + language/script detection         [planned P6]
-  layout/              reading order, tables, key-value pairs            [planned P6]
+  classification/      document type classification                      [planned P8]
+  layout/
+    models.py          LayoutRun / PageLayout / Table / KeyValuePair schema [implemented P6]
+    detector.py        PP-DocLayout + table classifier + SLANet_plus wrapper [implemented P6]
+    table_structure.py token parsing, ruling trace, evidence checks        [implemented P6]
+    reading_order.py   XY-cut reading order, column count                 [implemented P6]
+    key_value.py       evidence-only key-value pairs                       [implemented P6]
+    overlay.py         inspection overlay PNG                              [implemented P6]
+    service.py         region/line assignment, tables, review, storage     [implemented P6]
   extraction/          field extraction rules/templates                  [planned P7]
   validation/          field validators, confidence aggregation          [planned P7]
   export/              JSON / CSV / Excel writers                        [planned P7]

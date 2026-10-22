@@ -22,6 +22,14 @@ row: measured CER ≤ 0.009 on all 10 mixed test pages (ACCURACY_EVALUATION.md).
 Indian scripts on one page are flagged `mixed_script` for review, because a PaddleOCR
 recogniser covers one Indian script.
 
+## Tables and layout (Phase 6)
+
+Layout and table structure are script-independent (they work on the page image) and were
+measured on ruled tables in every language (ACCURACY_EVALUATION.md, synthetic): structure exact
+and verified against ruling lines for all six. Cell text comes from the language's OCR engine.
+**Kannada (Tesseract) skips text inside ruled grids on the page pass**: such cells are re-read
+from their crops, and any cell still unread is flagged `table_cell_unread` for review.
+
 ## Handwriting
 
 | Language | Status | Engine | Evidence |

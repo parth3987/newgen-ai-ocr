@@ -175,24 +175,48 @@ identification was added. The English "handwriting" recogniser underperformed th
 on the synthetic proxy and drops word spaces on some inputs. Confidence does not reveal a
 systematically wrong recogniser.
 
-## Phase 6: Persistence, jobs, containers and authentication (next)
+## Phase 6: Layout, tables and document structure (**complete**, 2026-10-23)
 
-PostgreSQL schema + Alembic migrations (documents, pages, preprocessing and OCR runs, review
-items, audit events); Valkey + Celery workers. Ingestion, preprocessing and OCR move to
-idempotent tasks keyed on `(document_id, stage, input_hash)`, with parsing and OCR in workers
-under resource limits (OD-12). Docker Compose (api/worker/postgres/valkey, internal network)
-with the **minimal source-built OpenCV wheel** (ADR-0015), `tesseract-ocr` and the verified
-`models/`. Readiness checks for DB, broker and OCR engines; API authentication (OD-6).
+Redefined by the owner (previously Phase 7; persistence moves to Phase 7). Components approved
+2026-10-23: `PP-DocLayout_plus-L` (default) / `PP-DocLayout-M`, `PP-LCNet_x1_0_table_cls`,
+`SLANet_plus`, plus a deterministic ruling-line check (ADR-0025). Explicit-separator key-value
+pairs only.
+
+Delivered: `newgen_ocr/layout/` (models wrapper, region assignment, XY-cut reading order,
+table structure parsing, ruling tracing, OCR-evidence checks, cell re-reads, key-value rules,
+inspection overlay); `POST/GET …/layout`, overlay PNG and `GET /api/v1/layout/status`; layout
+runs stored per OCR run; synthetic layout test set and `scripts/evaluate_layout.py`
+(`make eval-layout`); 4 models pinned and cross-checked; configs of every Paddle model now
+cross-checked against Hugging Face git-blob hashes. **Defect found and fixed:** Paddle
+predictors with oneDNN failed (and once degraded OCR silently) when called from more than one
+thread, which affected the Phase 4–5 API too; all Paddle calls now run on one thread
+(ADR-0020 addendum).
+
+| Acceptance criterion | Evidence | Status |
+|---|---|---|
+| Table results preserve row and column associations on the defined test set | Synthetic set of 13 table designs × 2 conditions: association F1 1.000 on 23 of 24 detected tables; 0 wrong structures returned without review; the one wrong structure (wireless, degraded scan) was routed to review (ACCURACY_EVALUATION.md) | Met (synthetic set) |
+| Layout errors can be inspected | Every region, cell and pair carries coordinates, scores, model labels and OCR line links; `issues` and `review` per table/page; overlay PNG endpoint | Met |
+| The implementation records unsupported structures instead of fabricating relationships | `unsupported` list (formula, chart, seal, figure text, unrecoverable table structure), invalid grids return no cells, ruling/OCR-evidence mismatches and unread cells route to review, pairs only from explicit evidence; service tests | Met |
+| Merged cells and complex tables tested where supported | colspan, rowspan and two-level header tables: exact structure and `verified` on clean and scan (live tests + evaluation) | Met |
+| Coordinates link output to source pages | OCR-image coordinates + `image_source`/`image_rotation_deg`; `line_indices` into the OCR run | Met |
+
+Not supported (recorded): native-text PDF pages (OD-25), unruled tables (OD-26), tables across
+pages, nested and rotated tables; no real-document measurement yet (OD-27).
+
+## Phase 7: Persistence, jobs, containers and authentication (next)
+
+PostgreSQL schema + Alembic migrations (documents, pages, preprocessing, OCR and layout runs,
+review items, audit events); Valkey + Celery workers. Ingestion, preprocessing, OCR and layout
+move to idempotent tasks keyed on `(document_id, stage, input_hash)`, with parsing and OCR in
+workers under resource limits (OD-12), one Paddle thread per worker process. Docker Compose
+(api/worker/postgres/valkey, internal network) with the **minimal source-built OpenCV wheel**
+(ADR-0015), `tesseract-ocr` and the verified `models/`. Readiness checks for DB, broker and
+OCR/layout models; API authentication (OD-6).
 
 Acceptance: compose stack from scratch; migrations apply/roll back; upload → 202 → jobs
-produce the same manifest, preprocessing and OCR runs as Phase 5; idempotent retries;
+produce the same manifest, preprocessing, OCR and layout runs as Phase 6; idempotent retries;
 integration tests on real Postgres/Valkey; container scan clean (OD-5); production startup
 with the minimal OpenCV build and no network.
-
-## Phase 7: Layout and document classification
-
-Document type classification, reading order, multi-column handling, table structure,
-key-value detection; rotated-page coordinate reconciliation (OD-14).
 
 ## Phase 8: Extraction, validation and export
 

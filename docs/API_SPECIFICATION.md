@@ -12,7 +12,7 @@ disabled (DECISIONS.md ADR-0005).
 - **Caching:** every response carries `Cache-Control: no-store` and
   `X-Content-Type-Options: nosniff`.
 - **Authentication:** not yet implemented (OD-6). Do not expose the service beyond a trusted
-  network until Phase 6 adds it.
+  network until Phase 7 adds it.
 - **Request size:** bodies larger than `NGOCR_MAX_UPLOAD_BYTES` + 64 KiB are refused with
   `413 FILE_TOO_LARGE`, either immediately (from Content-Length) or as soon as the streamed
   body exceeds the limit.
@@ -56,6 +56,9 @@ Messages never contain document content or submitted values.
 | `OCR_FAILED` | 500 | The engine failed on a page (per-page in runs; see `error_code`) |
 | `OCR_TIMEOUT` | 504 | The engine exceeded `NGOCR_OCR_PAGE_TIMEOUT_S` (Tesseract) |
 | `OCR_RUN_NOT_FOUND` | 404 | No OCR run (or comparison) with that name for this document |
+| `LAYOUT_UNAVAILABLE` | 503 | Layout/table models are not present (fetch them at staging) |
+| `LAYOUT_FAILED` | 500 | A layout model failed on a page (recorded per page in a layout run) |
+| `LAYOUT_RUN_NOT_FOUND` | 404 | No layout run for that OCR run name |
 
 Pages that cannot be recognised reliably are **not** errors. They come back in the run with
 `status: "unsupported"` and/or `review.needs_review: true` (see below and LANGUAGE_SUPPORT.md).
@@ -327,3 +330,78 @@ merged (ADR-0022). `404 OCR_RUN_NOT_FOUND`.
 `OcrRun` adds `handwriting` (bool) and `pages_needing_review` (count). With `languages:
 ["auto"]`, `503 OCR_ENGINE_UNAVAILABLE` is returned if script identification (Tesseract + OSD
 model) is unavailable.
+
+## Layout, tables and key-value pairs (Phase 6)
+
+Layout is derived from a **stored OCR run** and never changes it (ADR-0025). Coordinates are
+pixels in the image that OCR read (`image_source` after `image_rotation_deg`), the same space
+as `OcrPage.lines`. Regions, cells and pairs link to OCR lines by index (`line_indices` into
+`OcrPage.lines`). Runs synchronously in the request (ADR-0012).
+
+### `GET /api/v1/layout/status`
+`200` → `{"available": true, "reason": null, "models": [EngineInfo, …]}` for the layout,
+table-classification and table-structure models (pinned revision and file hashes).
+
+### `POST /api/v1/documents/{document_id}/layout`
+Body (optional): `{"ocr_run": "auto"}`, the name of a stored OCR run (as listed by
+`GET …/ocr`). `201` → `LayoutRun`, stored and replacing any earlier layout of that OCR run.
+Errors: `404 OCR_RUN_NOT_FOUND`, `503 LAYOUT_UNAVAILABLE` (models not fetched),
+`422 VALIDATION_ERROR`. A per-page model failure is recorded on that page
+(`status: failed`, `error_code: LAYOUT_FAILED`).
+
+### `GET /api/v1/documents/{document_id}/layout`
+`200` → names of stored layout runs (one per OCR run), e.g. `["auto"]`.
+
+### `GET /api/v1/documents/{document_id}/layout/{ocr_run}`
+`200` → `LayoutRun`. `404 LAYOUT_RUN_NOT_FOUND`.
+
+### `GET /api/v1/documents/{document_id}/layout/{ocr_run}/pages/{page_number}/overlay`
+`200 image/png`: the page with regions coloured by type, reading-order numbers, table cells
+and review flags drawn, for inspecting layout errors. Not stored. `404 PAGE_NOT_FOUND`,
+`404 PAGE_IMAGE_NOT_AVAILABLE` (page skipped or failed).
+
+### `LayoutRun`
+
+```json
+{"document_id": "…", "ocr_run": "auto", "models": [EngineInfo, …],
+ "parameters": {"min_table_score": 0.9, "ruling_check": true},
+ "created_at": "…", "pipeline_version": "0.6.0", "runtime": {…}, "total_ms": 2412.3,
+ "pages_needing_review": 0,
+ "pages": [{
+   "page_number": 1, "status": "ok", "image_source": "preprocessed:standard",
+   "image_rotation_deg": 0, "image_width": 1705, "image_height": 2374, "column_count": 2,
+   "regions": [{"id": 0, "type": "header", "label": "header", "score": 0.92,
+                "bbox": {…}, "order": 0, "line_indices": [0], "text": "…", "table_id": null}],
+   "tables": [{
+     "id": 0, "region_id": 5, "bbox": {…}, "status": "ok",
+     "kind": "wired", "kind_score": 0.94, "structure_score": 0.9997,
+     "rows": 5, "cols": 4,
+     "cells": [{"row": 0, "col": 1, "row_span": 1, "col_span": 2, "header": true,
+                "bbox": {…}, "text": "Sales (units)", "text_source": "ocr_lines",
+                "line_indices": [12], "confidence": 0.99}],
+     "grid": [[0, 1, 1, 2], …],
+     "ruling_check": "verified", "cell_boxes": "rulings",
+     "ruling_rows": 5, "ruling_cols": 4, "issues": [], "html": "<table>…</table>"}],
+   "key_values": [{"key": "Invoice No", "value": "INV-2024-0042", "source": "separator",
+                   "region_id": 7, "line_index": 30, "bbox": {…},
+                   "key_bbox": null, "value_bbox": null, "table_id": null, "row": null}],
+   "unsupported": [{"kind": "formula", "region_id": 9, "detail": "…"}],
+   "text": "…", "review": {"needs_review": false, "reasons": [], "details": []},
+   "duration_ms": 2401.0}]}
+```
+
+| Field | Meaning |
+|---|---|
+| `status` | `ok`, `skipped` (`skip_reason`: the OCR page's skip reason, e.g. `native_text`, or `ocr_<status>`), `failed` (`error_code`) |
+| `regions[].type` | `title`, `section_title`, `text`, `caption`, `header`, `footer`, `page_number`, `footnote`, `aside`, `table`, `figure`, `chart`, `formula`, `seal`, `unclassified` (OCR text outside every detected region, or an unknown label). `label` keeps the model's own label |
+| `regions[].order` | Reading order (headers first, then the flow by XY-cut, then footers/page numbers); `regions` is sorted by it |
+| `column_count` | Most side-by-side text regions in the main flow |
+| `tables[].status` | `ok`; `needs_review` (structure returned, `issues` say why); `unsupported` (no reliable structure: no cells, the text stays in the region) |
+| `tables[].grid` | `rows × cols` indices into `cells`; a spanned cell repeats its index. Row/column association: cell `grid[r][c]` |
+| `tables[].ruling_check` | `verified` (traced borders give exactly these cells), `mismatch` (review), `inconclusive`, `not_applicable` (wireless), `disabled` |
+| `tables[].cell_boxes` | `rulings` (exact traced interiors, after `verified`) or `model` (SLANet's approximate boxes) |
+| `cells[].text_source` | `ocr_lines` (the page's OCR lines inside the cell), `cell_ocr` (re-read from the cell crop: a line spanned cells, or page OCR left it empty), `empty` |
+| `key_values[].source` | `separator` ("Key: value" on one line; `bbox` is the line's, no per-word boxes are estimated) or `table_row` (a two-column table row; exact `key_bbox`/`value_bbox`) |
+| `unsupported[].kind` | `formula`, `chart`, `seal`, `figure_text`, `table_structure` |
+| `review.reasons` | `table_structure_mismatch`, `table_structure_invalid`, `table_low_confidence`, `table_text_unassigned`, `table_cell_text_ambiguous`, `table_cell_unread`, `unsupported_structure`, `overlapping_regions`, `unclassified_text` |
+| `text` | Page text in reading order: regions separated by a blank line, table rows on lines with cells tab-separated |

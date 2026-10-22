@@ -42,6 +42,9 @@ HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.OCR_FAILED: 500,
     ErrorCode.OCR_TIMEOUT: 504,
     ErrorCode.OCR_RUN_NOT_FOUND: 404,
+    ErrorCode.LAYOUT_UNAVAILABLE: 503,
+    ErrorCode.LAYOUT_FAILED: 500,
+    ErrorCode.LAYOUT_RUN_NOT_FOUND: 404,
 }
 
 _CODE_FOR_HTTP_STATUS = {

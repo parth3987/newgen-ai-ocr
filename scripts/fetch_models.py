@@ -64,6 +64,11 @@ def _published_lfs_hashes(source: dict[str, str]) -> dict[str, str]:
 
 
 def _published_git_blobs(source: dict[str, str]) -> dict[str, str]:
+    if source["type"] == "huggingface":
+        # Non-LFS files (configs) are published with their git blob SHA-1.
+        url = f"https://huggingface.co/api/models/{source['repo']}/tree/{source['revision']}"
+        files: list[dict[str, Any]] = json.loads(_get(url))
+        return {f["path"]: f["oid"] for f in files if f["type"] == "file" and not f.get("lfs")}
     if source["type"] != "github":
         return {}
     url = (

@@ -129,3 +129,22 @@ Same laptop. Per page, on corpus pages:
 Auto mode therefore roughly doubles PaddleOCR's per-page time on this CPU (about 4 s + 4–6 s).
 Disable orientation detection only if inputs are known to be upright (e.g. after `standard`
 preprocessing).
+
+## Layout and tables (Phase 6, 2026-10-23)
+
+Same laptop, measured by `scripts/evaluate_layout.py` on the 30-page synthetic layout set
+(single-table or text pages, A4 at 200–300 DPI). Layout runs after OCR, on the stored OCR run:
+
+| Layout model | Layout time per page (median) | Notes |
+|---|---|---|
+| `PP-DocLayout_plus-L` (default) | **2.86 s** | region detection ~2.2 s; table classify + SLANet ~0.2 s per table; ruling trace and checks < 0.1 s |
+| `PP-DocLayout-M` | **0.56 s** | 4.9x faster; lower region recall (more pages routed to review) |
+
+Extra time when cells are re-read from crops: about 0.1–0.3 s per cell (Tesseract on the
+Kannada table: about 1 s for 11 cells). First use in a process loads the models (about 5 s).
+Rejected for cost: `SLANeXt_wired` took 3.9–4.1 s per table against 0.2 s for `SLANet_plus`,
+with identical structures on the probe page.
+
+**Paddle threading (ADR-0020 addendum):** all Paddle inference runs on one dedicated thread
+per process. Calls were already serialised by locks, so measured throughput is unchanged. Scale
+out with processes, not threads.

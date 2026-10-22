@@ -16,7 +16,7 @@ from newgen_ocr.ingestion.models import BoundingBox
 from newgen_ocr.ocr.engine import Image, reading_order
 from newgen_ocr.ocr.model_store import ModelEntry, ModelStore
 from newgen_ocr.ocr.models import EngineInfo, OcrLine
-from newgen_ocr.ocr.paddle_runtime import load_paddleocr
+from newgen_ocr.ocr.paddle_runtime import load_paddleocr, run_on_paddle_thread
 
 # The PP-LCNet text-line orientation classifier is applied only where it was validated on
 # the baseline corpus: English. On Indic scripts it misclassifies upright lines as upside
@@ -160,14 +160,17 @@ class PaddleEngine:
         else:
             bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         with self._lock:
-            pipeline = self._pipeline(languages)
-            try:
-                results = pipeline.predict(np.ascontiguousarray(bgr))
-            except AppError:
-                raise
-            except Exception as exc:
-                raise AppError(ErrorCode.OCR_FAILED, "PaddleOCR failed on this page") from exc
+            results = run_on_paddle_thread(self._predict, languages, np.ascontiguousarray(bgr))
         return reading_order(_to_lines(results[0] if results else None))
+
+    def _predict(self, languages: Sequence[str], bgr: Image) -> Any:
+        pipeline = self._pipeline(languages)
+        try:
+            return pipeline.predict(bgr)
+        except AppError:
+            raise
+        except Exception as exc:
+            raise AppError(ErrorCode.OCR_FAILED, "PaddleOCR failed on this page") from exc
 
 
 def _to_lines(result: Any) -> list[OcrLine]:

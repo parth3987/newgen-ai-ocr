@@ -184,3 +184,60 @@ def test_paddle_ocr_runs_with_no_network_namespace(tmp_path: Path) -> None:
     assert int(out.split("LINES")[1].split()[0]) > 20
     assert "NETWORK_ATTEMPTS 0" in out
     assert not list((tmp_path / "cache").rglob("*.pdiparams"))
+
+
+_OFFLINE_LAYOUT = """
+import sys
+from pathlib import Path
+from newgen_ocr.evaluation.layout_corpus import table_page, table_specs
+from newgen_ocr.layout.detector import PaddleLayoutModels
+from newgen_ocr.layout.models import RegionType
+from newgen_ocr.ocr.model_store import ModelStore
+attempts = []
+def hook(event, args):
+    if event in ("socket.connect", "socket.getaddrinfo", "socket.gethostbyname"):
+        attempts.append(event)
+sys.addaudithook(hook)
+spec = next(s for s in table_specs(Path("evaluation/corpus/text")) if s.id == "en-simple")
+image, _ = table_page(spec, Path("evaluation/corpus/text"), 150)
+store = ModelStore(Path(sys.argv[1]), Path(sys.argv[2]))
+models = PaddleLayoutModels(store, Path(sys.argv[3]), "PP-DocLayout_plus-L", 0.5, None)
+regions = models.detect(image)
+table = next(r.bbox for r in regions if r.type is RegionType.TABLE)
+crop = image[int(table.y0):int(table.y1), int(table.x0):int(table.x1)].copy()
+print("KIND", models.classify_table(crop)[0].value)
+print("CELLS", len(models.table_structure(crop).cell_boxes))
+print("NETWORK_ATTEMPTS", len(attempts))
+"""
+
+
+@pytest.mark.models
+def test_layout_models_run_with_no_network_namespace(tmp_path: Path) -> None:
+    unshare = shutil.which("unshare")
+    if unshare is None:
+        pytest.skip("unshare not available")
+    probe = subprocess.run([unshare, "-rn", "true"], capture_output=True, check=False)  # noqa: S603
+    if probe.returncode != 0:
+        pytest.skip("unprivileged network namespaces are not permitted here")
+    result = subprocess.run(  # noqa: S603
+        [
+            unshare,
+            "-rn",
+            sys.executable,
+            "-c",
+            _OFFLINE_LAYOUT,
+            str(MODELS_DIR),
+            str(MODELS_LOCK),
+            str(tmp_path / "cache"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        timeout=600,
+        check=False,
+    )
+    out = result.stdout
+    assert "CELLS 15" in out, result.stderr[-3000:]
+    assert "KIND wired" in out
+    assert "NETWORK_ATTEMPTS 0" in out
+    assert not list((tmp_path / "cache").rglob("*.pdiparams"))

@@ -7,8 +7,9 @@ Generated from `models.lock.json` and `evaluation/fonts.lock.json` (the sources 
 
 - Models are fetched only at staging, by `make models` (`scripts/fetch_models.py`), from the
   exact pinned revision. Every file's SHA-256 is recorded and cross-checked against an
-  independent publisher hash: the Hugging Face LFS SHA-256 for Paddle weights, and the GitHub
-  git-blob SHA-1 for `tessdata_best` and fonts.
+  independent publisher hash: the Hugging Face LFS SHA-256 for Paddle weights, the Hugging Face
+  git-blob SHA-1 for Paddle configs (`inference.json`/`.yml`, re-verified for every Paddle model
+  on 2026-10-23), and the GitHub git-blob SHA-1 for `tessdata_best` and fonts.
 - At runtime the application only *reads* `models/`. Each model is hash-verified before first
   use (`MODEL_INTEGRITY_ERROR` on mismatch). Missing models report `MODEL_NOT_AVAILABLE` and are
   never downloaded (ADR-0020/0021).
@@ -39,8 +40,12 @@ Code licence: PaddleOCR/PaddleX/PaddlePaddle and Tesseract are Apache-2.0.
 | `tesseract/kan` | tesseract | recognition | kn | [tesseract-ocr/tessdata_best](https://github.com/tesseract-ocr/tessdata_best) @ `e12c65a91594` | `kan.traineddata` `6f195e0f33f0ec51…` | Apache-2.0 | Apache-2.0 | Not disclosed by vendor |
 | `paddle/PP-OCRv5_server_rec` | paddleocr | handwriting_recognition | en | [PaddlePaddle/PP-OCRv5_server_rec](https://huggingface.co/PaddlePaddle/PP-OCRv5_server_rec) @ `b26c3587fda8` | `inference.json` `8e6e12e5d4253184…`<br>`inference.pdiparams` `63853f062a5f4089…`<br>`inference.yml` `2c719dba044c4e22…` | Apache-2.0 | Apache-2.0 | Not disclosed by vendor |
 | `tesseract/osd` | tesseract | script_detection | * | [tesseract-ocr/tessdata_best](https://github.com/tesseract-ocr/tessdata_best) @ `e12c65a91594` | `osd.traineddata` `9cf5d576fcc47564…` | Apache-2.0 | Apache-2.0 | Not disclosed by vendor |
+| `paddle/PP-DocLayout_plus-L` | paddleocr | layout_detection | * | [PaddlePaddle/PP-DocLayout_plus-L](https://huggingface.co/PaddlePaddle/PP-DocLayout_plus-L) @ `aa52b8528c84` | `inference.json` `99bd09c0a1b9e88d…`<br>`inference.pdiparams` `24ca3e2e44216450…`<br>`inference.yml` `d60f782a16f96afb…` | Apache-2.0 | Apache-2.0 | Not disclosed by vendor |
+| `paddle/PP-DocLayout-M` | paddleocr | layout_detection | * | [PaddlePaddle/PP-DocLayout-M](https://huggingface.co/PaddlePaddle/PP-DocLayout-M) @ `7dbfcce3154a` | `inference.json` `5b2ec6d403904d40…`<br>`inference.pdiparams` `f374bb0269d91ab2…`<br>`inference.yml` `76aeb103310f432e…` | Apache-2.0 | Apache-2.0 | Not disclosed by vendor |
+| `paddle/PP-LCNet_x1_0_table_cls` | paddleocr | table_classification | * | [PaddlePaddle/PP-LCNet_x1_0_table_cls](https://huggingface.co/PaddlePaddle/PP-LCNet_x1_0_table_cls) @ `2fa6323e7dab` | `inference.json` `43401e76ed7b0e34…`<br>`inference.pdiparams` `d0224afd9cfddf22…`<br>`inference.yml` `891b1f4b0ccddaf6…` | Apache-2.0 | Apache-2.0 | Not disclosed by vendor |
+| `paddle/SLANet_plus` | paddleocr | table_structure | * | [PaddlePaddle/SLANet_plus](https://huggingface.co/PaddlePaddle/SLANet_plus) @ `bae6e5f8c3c4` | `inference.json` `aba91cd956f4a164…`<br>`inference.pdiparams` `012986b0e2bfe904…`<br>`inference.yml` `8a6372d3269a6f11…` | Apache-2.0 | Apache-2.0 | Not disclosed by vendor |
 
-Total on disk: about 290 MB.
+Total on disk: about 450 MB.
 
 ## Usage notes
 
@@ -52,6 +57,14 @@ Total on disk: about 290 MB.
   a Chinese/English model and drops English word spaces on some inputs (measured).
 - `tesseract/osd` provides page orientation and (as a hint) script names (ADR-0023). Script
   identification itself uses a Tesseract census pass with the `eng/hin/tel/tam/kan` models.
+- **Layout and tables (ADR-0025):** `PP-DocLayout_plus-L` is the default layout detector
+  (20 region classes); `PP-DocLayout-M` (23 classes, about 5x faster, lower recall) is
+  selectable with `NGOCR_LAYOUT_MODEL`. `PP-LCNet_x1_0_table_cls` classifies tables as wired /
+  wireless; `SLANet_plus` predicts table structure (rows, columns, rowspan/colspan) and cell
+  boxes. All four: Apache-2.0 weights; the vendor describes training data only as a
+  "self-built dataset" of Chinese and English documents (not disclosed; risk accepted as for
+  the OCR models). Not adopted: `SLANeXt_wired` (349 MB, about 20x slower, same structures on
+  the probe) and the RT-DETR-L cell detectors (124 MB each).
 - The Tesseract **binary** is the OS package `tesseract-ocr` 5.5.0 (Apache-2.0).
 
 ## Evaluation-only assets (never shipped)

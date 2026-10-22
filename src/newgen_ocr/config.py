@@ -87,6 +87,16 @@ class Settings(BaseSettings):
     # handwriting result is routed to review.
     ocr_handwriting_verified_languages: tuple[str, ...] = ()
 
+    # Layout and tables (ADR-0025). PP-DocLayout_plus-L: most accurate (~2.2 s/page on CPU);
+    # PP-DocLayout-M: ~10x faster, lower region confidence (docs/PERFORMANCE.md).
+    layout_model: Literal["PP-DocLayout_plus-L", "PP-DocLayout-M"] = "PP-DocLayout_plus-L"
+    # Regions the detector scores below this are discarded (their text becomes unclassified).
+    layout_score_threshold: float = Field(default=0.5, ge=0.05, le=0.99)
+    # Tables whose SLANet structure score is below this are routed to review.
+    layout_min_table_score: float = Field(default=0.90, ge=0.0, le=1.0)
+    # Cross-check wired-table structure against traced ruling lines.
+    layout_ruling_check: bool = True
+
     @model_validator(mode="after")
     def _check_ocr_engines(self) -> Settings:
         if self.ocr_fallback_engine == self.ocr_primary_engine:

@@ -34,7 +34,7 @@ decisions and audit trail, model weights (integrity), credentials (DB, broker, A
 ## Security checks in the gate
 
 `make security` (Bandit, pip-audit on both locks), `make secrets` (Gitleaks), `make licenses`,
-`make sbom`. Container image scanning is to be added in Phase 6 (OD-5).
+`make sbom`. Container image scanning is to be added in Phase 7 (OD-5).
 
 Note: `pip-audit` queries public vulnerability databases. It runs in development/CI only,
 never on production hosts.

@@ -75,4 +75,6 @@ models/
 
 # Generated evaluation corpus (rebuild with scripts/evaluate_ocr.py --build)
 evaluation/corpus/generated/
+# Generated layout test set (rebuild with scripts/evaluate_layout.py --rebuild)
+evaluation/layout/generated/
 evaluation/fonts/

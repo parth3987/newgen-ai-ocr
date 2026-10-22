@@ -16,7 +16,7 @@ UV_COMPILE     := uv pip compile --python-version $(PYTHON_VERSION) \
 GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.21.2
 REPORTS        := reports
 
-.PHONY: help venv lock models fonts eval-languages eval-handwriting lint format typecheck test security secrets licenses sbom bench eval check run clean
+.PHONY: help venv lock models fonts eval-languages eval-handwriting eval-layout lint format typecheck test security secrets licenses sbom bench eval check run clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -78,6 +78,9 @@ eval-languages: ## Script/orientation ID, hi/mr ID and mixed-script routing eval
 
 eval-handwriting: ## Handwriting evaluation (synthetic fonts; --dataset DIR for real samples)
 	$(BIN)/python scripts/evaluate_handwriting.py
+
+eval-layout: ## Layout, tables, reading order and key-value pairs on the synthetic layout set
+	$(BIN)/python scripts/evaluate_layout.py --rebuild
 
 check: lint typecheck test security licenses ## Full local acceptance gate (plus `make secrets`)
 
