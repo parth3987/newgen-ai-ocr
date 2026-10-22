@@ -143,48 +143,69 @@ usable on PaddleOCR** (CER 0.39, WER 1.0), so it is routed to Tesseract (CER 0.0
 Tesseract's TSV config-file pitfall and Tamil zero-width joiners were found and fixed by
 measurement.
 
-## Phase 5: Persistence, jobs, containers and authentication (next)
+## Phase 5: Language and handwriting support (**complete**, 2026-10-23)
 
-PostgreSQL schema + Alembic migrations (documents, pages, preprocessing and OCR runs, audit
-events); Valkey + Celery workers. Ingestion, preprocessing and OCR move to idempotent tasks
-keyed on `(document_id, stage, input_hash)`, with parsing and OCR in workers under resource
-limits (OD-12) and one OCR model set per worker process. Docker Compose for
-api/worker/postgres/valkey on an internal network, with the **minimal source-built OpenCV
-wheel** (ADR-0015), `tesseract-ocr` and the verified `models/` in the images. Readiness checks
-for DB, broker and OCR engines; API authentication (OD-6).
+Redefined by the project owner. Persistence and jobs move to Phase 6. Restarted once on
+2026-10-23 (the work was kept and finished from a reviewed plan).
 
-Acceptance: compose stack starts from scratch; migrations apply and roll back on an empty DB;
-upload returns 202 and the jobs produce the same manifest, preprocessing run and OCR run as
-Phase 4; retries do not duplicate artefacts; integration tests against real Postgres and
-Valkey; container image scan clean (OD-5); production-mode startup succeeds with the minimal
-OpenCV build and no network.
+- [x] Supported-language matrix (`ocr/languages.py`, `/api/v1/languages`, LANGUAGE_SUPPORT.md).
+- [x] Open-source recognition models per script identified, pinned, licence-checked
+      (MODEL_INVENTORY.md); handwriting candidates reviewed and rejected with reasons.
+- [x] Printed English and each Indian language evaluated independently (Phase 4 corpus, both engines).
+- [x] Script/orientation identification (OSD + census) and per-page routing (`languages: ["auto"]`).
+- [x] Optional handwriting as a separate engine (`paddle_handwriting`, English, experimental).
+- [x] Checkpoint licensing/redistribution verified: Apache-2.0 weights, hashes pinned and
+      cross-checked; fonts OFL, evaluation only.
+- [x] Handwriting evaluated per supported language: English (synthetic proxy only); Indian
+      scripts unsupported (no clean model); real-sample harness ready.
+- [x] Unsupported-language and uncertain-recognition path: `unsupported` status + review reasons.
+- [x] Mixed-script and mixed-language test cases (unit, live and evaluation).
 
-## Phase 6: Classification and layout
+Acceptance evidence (2026-10-23):
 
-Document type classification, language/script detection (feeds OCR language selection,
-OD-20), page orientation for Devanagari (OD-18), reading order, multi-column handling, table
-structure reconstruction, key-value detection; rotated-page coordinate reconciliation (OD-14).
+| Criterion | Evidence | Status |
+|---|---|---|
+| Every enabled language has documented model provenance and test results | LANGUAGE_SUPPORT.md (per-language models + CER) → MODEL_INVENTORY.md (revision, hashes, licences); `test_every_enabled_printed_engine_has_a_pinned_model`; Kannada PaddleOCR disabled by measurement | Met |
+| Handwriting support is not claimed for untested scripts | Indian scripts `unsupported`; English `experimental` (synthetic only) with every result `handwriting_unverified`; `test_handwriting_is_never_claimed_supported`, `test_indic_handwriting_is_unsupported` | Met |
+| Model weights are stored locally and hash-verified | `models.lock.json` (16 models) + runtime verification + offline tests; new models cross-checked against publisher hashes | Met |
+| Unsupported or low-quality inputs can be routed to human review | `unsupported` status + 13 review reasons; service tests (fake detector) and live API tests (Bengali page, handwriting, mixed, upside-down) | Met |
 
-## Phase 7: Extraction, validation and export
+Key findings: OSD's Devanagari script detection is text-size dependent, so census-based
+identification was added. The English "handwriting" recogniser underperformed the printed one
+on the synthetic proxy and drops word spaces on some inputs. Confidence does not reveal a
+systematically wrong recogniser.
 
-Field extraction (templates/rules per document type), validators (formats, checksums,
-cross-field rules), confidence calibration and aggregation, review triggers; JSON/CSV/Excel
-exports with evidence.
+## Phase 6: Persistence, jobs, containers and authentication (next)
 
-## Phase 8: Human review UI
+PostgreSQL schema + Alembic migrations (documents, pages, preprocessing and OCR runs, review
+items, audit events); Valkey + Celery workers. Ingestion, preprocessing and OCR move to
+idempotent tasks keyed on `(document_id, stage, input_hash)`, with parsing and OCR in workers
+under resource limits (OD-12). Docker Compose (api/worker/postgres/valkey, internal network)
+with the **minimal source-built OpenCV wheel** (ADR-0015), `tesseract-ocr` and the verified
+`models/`. Readiness checks for DB, broker and OCR engines; API authentication (OD-6).
 
-React + TypeScript review application served locally (no CDN assets): queue, page viewer with
-bounding-box overlays, source vs preprocessed comparison, engine disagreements, field
-correction, audit trail.
+Acceptance: compose stack from scratch; migrations apply/roll back; upload → 202 → jobs
+produce the same manifest, preprocessing and OCR runs as Phase 5; idempotent retries;
+integration tests on real Postgres/Valkey; container scan clean (OD-5); production startup
+with the minimal OpenCV build and no network.
 
-## Phase 9: Handwriting recognition
+## Phase 7: Layout and document classification
 
-Select, license-review and integrate a locally hosted handwriting model; measure per language.
-Languages without a viable model are documented as unsupported, not approximated.
+Document type classification, reading order, multi-column handling, table structure,
+key-value detection; rotated-page coordinate reconciliation (OD-14).
+
+## Phase 8: Extraction, validation and export
+
+Field extraction, validators, confidence calibration, review triggers; JSON/CSV/Excel exports
+with evidence.
+
+## Phase 9: Human review UI
+
+React + TypeScript review application served locally (no CDN assets): queue fed by
+`review.reasons`, page viewer with overlays, engine disagreements, field correction, audit trail.
 
 ## Phase 10: Offline deployment and hardening
 
 Offline bundle (wheels, images, models, SBOM, hashes); host-level egress blocking verified by
-test; backups/restore drill; storage retention (OD-16); operations runbook; throughput
-benchmarks against the 100–10,000 pages/day target on the reference CPU server (OD-19); a
-real-document evaluation set.
+test; backups/restore drill; storage retention (OD-16); runbook; throughput benchmarks on the
+reference CPU server (OD-19); real-document and real-handwriting evaluation sets (OD-21, OD-23).

@@ -12,7 +12,7 @@ disabled (DECISIONS.md ADR-0005).
 - **Caching:** every response carries `Cache-Control: no-store` and
   `X-Content-Type-Options: nosniff`.
 - **Authentication:** not yet implemented (OD-6). Do not expose the service beyond a trusted
-  network until Phase 5 adds it.
+  network until Phase 6 adds it.
 - **Request size:** bodies larger than `NGOCR_MAX_UPLOAD_BYTES` + 64 KiB are refused with
   `413 FILE_TOO_LARGE`, either immediately (from Content-Length) or as soon as the streamed
   body exceeds the limit.
@@ -57,12 +57,15 @@ Messages never contain document content or submitted values.
 | `OCR_TIMEOUT` | 504 | The engine exceeded `NGOCR_OCR_PAGE_TIMEOUT_S` (Tesseract) |
 | `OCR_RUN_NOT_FOUND` | 404 | No OCR run (or comparison) with that name for this document |
 
+Pages that cannot be recognised reliably are **not** errors. They come back in the run with
+`status: "unsupported"` and/or `review.needs_review: true` (see below and LANGUAGE_SUPPORT.md).
+
 Codes are stable: they are never renamed or reused.
 
 ## Health
 
 ### `GET /health/live`
-`200` → `{"status": "ok", "version": "0.4.0"}`. Performs no dependency checks.
+`200` → `{"status": "ok", "version": "0.5.0"}`. Performs no dependency checks.
 
 ### `GET /health/ready`
 `200` → `{"status": "ready", "checks": {"data_dir_writable": true}}`
@@ -227,7 +230,8 @@ JSON body (all optional):
 | Field | Default | Meaning |
 |---|---|---|
 | `engine` | `"auto"` | `auto` (primary with per-page fallback; the primary is per language, e.g. Kannada → Tesseract), `paddle` or `tesseract` (no fallback) |
-| `languages` | `NGOCR_OCR_DEFAULT_LANGUAGES` (`["en"]`) | ISO 639-1 codes. PaddleOCR uses the first; Tesseract uses all |
+| `languages` | `NGOCR_OCR_DEFAULT_LANGUAGES` (`["en"]`) | ISO 639-1 codes (PaddleOCR uses the first; Tesseract uses all), or `["auto"]` to identify the script per page (ADR-0023) |
+| `handwriting` | `false` | Use the handwriting engine (English only, experimental: always reviewed). Other languages return `unsupported` (ADR-0024). Requires `engine: "auto"` and no `compare` |
 | `preprocessing_profile` | default profile | Read that profile's preprocessed images where they exist; otherwise source pages |
 | `compare` | `false` | Also run the secondary engine and store `ocr/comparison` |
 
@@ -283,3 +287,43 @@ Errors: `422 UNSUPPORTED_LANGUAGE | UNKNOWN_ENGINE | VALIDATION_ERROR`,
 "pages": [{"page_number", "agreement", "needs_review", "reason"}]}`. `reason` is `agree`,
 `disagreement`, `engine_failed` or `skipped:<reason>`. Informational only: results are never
 merged (ADR-0022). `404 OCR_RUN_NOT_FOUND`.
+
+## Languages and review (Phase 5)
+
+### `GET /api/v1/languages`
+`200` → the language matrix: `[{"code": "kn", "name": "Kannada", "script": "Kannada",
+"printed_engines": ["tesseract"], "handwriting": "unsupported", "notes": "…"}, …]`.
+`handwriting` is `unsupported`, `experimental` or `supported` (none is `supported` yet).
+
+### Additional `OcrPage` fields
+
+```json
+{"status": "ok",
+ "languages": ["hi", "mr", "en"],
+ "handwriting": false,
+ "image_rotation_deg": 180,
+ "script": {"status": "detected", "script": "Devanagari", "script_confidence": 0.95,
+            "secondary_scripts": ["Latin"], "osd_script": "Devanagari",
+            "osd_script_confidence": 38.3, "census": {"Devanagari": 0.95, "Latin": 0.05},
+            "census_mean_confidence": 0.94, "orientation_deg": 180,
+            "orientation_confidence": 30.6, "method": "tesseract-osd+census",
+            "duration_ms": 3980.0},
+ "detected_language": {"languages": ["hi"], "scripts": {"Devanagari": 0.96, "Latin": 0.04},
+                       "mixed_script": false, "uncertain": false,
+                       "reason": "devanagari_words(hi=13,mr=0)"},
+ "review": {"needs_review": true, "reasons": ["low_confidence_lines"],
+            "details": ["2 of 16 lines"]}}
+```
+
+| Field | Meaning |
+|---|---|
+| `status` | Adds `unsupported`: the page was not OCRed because it cannot be read reliably (`review.reasons` says why) |
+| `languages` | Languages the engine was asked to read for this page (per page in auto mode) |
+| `image_rotation_deg` | Clockwise rotation applied before OCR (from OSD). Coordinates refer to the rotated image |
+| `script` | Detection evidence: null when not run. `status`: `detected`, `uncertain`, `undetermined`, `unavailable` |
+| `detected_language` | Script census and language guess of the recognised text; Hindi vs Marathi from function words, `uncertain` when the evidence is weak |
+| `review.reasons` | `unsupported_script`, `script_uncertain`, `script_mismatch`, `language_not_enabled`, `handwriting_unsupported`, `handwriting_unverified`, `mixed_script`, `low_confidence`, `low_confidence_lines`, `empty_result`, `ocr_failed`, `low_quality`, `engine_disagreement` |
+
+`OcrRun` adds `handwriting` (bool) and `pages_needing_review` (count). With `languages:
+["auto"]`, `503 OCR_ENGINE_UNAVAILABLE` is returned if script identification (Tesseract + OSD
+model) is unavailable.

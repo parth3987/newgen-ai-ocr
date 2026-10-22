@@ -64,7 +64,7 @@ Containers will also set `OTEL_SDK_DISABLED=true`.
 
 ### ADR-0009: Separate liveness and readiness probes (2026-10-22)
 `/health/live` performs no I/O (it is for restart decisions). `/health/ready` checks the
-dependencies needed to accept work (currently `data_dir`; DB and broker are added in Phase 5)
+dependencies needed to accept work (currently `data_dir`; DB and broker are added in Phase 6)
 and returns 503 with per-check results when any check fails.
 
 ### ADR-0010: Approved formats detected by signature (2026-10-22)
@@ -88,13 +88,13 @@ unnecessary OCR on image-heavy digital pages for never silently losing scanned c
 Thresholds are named constants and will be tuned against the evaluation set (Phase 5).
 
 ### ADR-0012: Synchronous ingestion with a global PDFium lock (temporary) (2026-10-22)
-Until the job queue exists (Phase 5), `POST /api/v1/documents` ingests synchronously in
+Until the job queue exists (Phase 6), `POST /api/v1/documents` ingests synchronously in
 FastAPI's thread pool. PDFium is not thread-safe, so all PDFium use is serialised by
 `PDFIUM_LOCK`. Throughput is therefore limited to one PDF at a time per process, which is
 acceptable for development and must not be used for production volumes.
 
 ### ADR-0013: Filesystem document store and manifests as the metadata record (2026-10-22)
-Until PostgreSQL arrives (Phase 5), `derived/<id>/manifest.json` is the system of record for
+Until PostgreSQL arrives (Phase 6), `derived/<id>/manifest.json` is the system of record for
 document metadata. Originals (`originals/`, mode 0440) are stored separately from derived
 artefacts (`derived/`). Derived output is built in `staging/` and renamed into place
 atomically, with the manifest included. Client filenames never touch the filesystem. Document
@@ -105,7 +105,7 @@ recorded so they can be deduplicated later).
 `audit/audit.jsonl` records `document.accepted` and `document.rejected` with request id,
 actor (`anonymous` until auth exists), sha256, size, format, page counts and error code,
 never filenames or content. Each line is appended with `O_APPEND` and fsync. It moves to a
-database table in Phase 5, with the file kept as a tamper-evident export.
+database table in Phase 6, with the file kept as a tamper-evident export.
 
 ### ADR-0015: OpenCV supplied as a minimal source build in production (2026-10-22)
 Decided by the project owner. The PyPI `opencv-python-headless` 4.14.0.94 wheel loads 16
@@ -119,7 +119,7 @@ only the modules we need (core, imgproc, photo), without FFmpeg/videoio/OpenSSL.
 published as an internal hash-pinned wheel that also satisfies PaddleOCR's `cv2`
 requirement. Development and CI use the PyPI wheel. **Enforcement:** `create_app` refuses
 to start with `NGOCR_ENVIRONMENT=production` if `cv2.getBuildInformation()` reports
-`FFMPEG: YES` (`newgen_ocr/imaging/runtime.py`, tested). The build itself is a Phase 5/10 task.
+`FFMPEG: YES` (`newgen_ocr/imaging/runtime.py`, tested). The build itself is a Phase 6/10 task.
 
 ### ADR-0016: Orientation and skew by projection profiles; 180° resolved at OCR (2026-10-22)
 Skew is the angle that maximises the sharpness of the ink projection profile (coarse 0.5°
@@ -230,6 +230,54 @@ words and orientation. Each run records the engine version and the exact models
 
 OCR runs synchronously in the request for now (ADR-0012).
 
+### ADR-0023: Language matrix, script identification and review routing (2026-10-23)
+**Matrix:** `newgen_ocr/ocr/languages.py` (served at `/api/v1/languages`, documented in
+LANGUAGE_SUPPORT.md) enables an engine for a language only with pinned models and measured
+results. Kannada is Tesseract-only.
+
+**Script identification** (`languages: ["auto"]`) combines two measured signals:
+- *Tesseract OSD* for orientation (clockwise `Rotate`, applied when confidence ≥ 2.0) and for
+  naming an unsupported script. OSD's script answer is **not** trusted for supported scripts:
+  on Devanagari it depended on text size (Marathi at 150 DPI read as "Cyrillic"; confidence
+  0.4–47 across DPI), and rescaling did not fix it.
+- A *recognition census*: one Tesseract pass with `eng+hin+tel+tam+kan` on the upright page
+  (downscaled to about 150 DPI text height), then a Unicode script count of the output.
+  Detected when the top script has at least 60% of characters, or the top two (one of them
+  Latin) cover at least 85%, **and** mean confidence ≥ 0.70. Unsupported scripts produce
+  scattered output at about 0.45 confidence and are never routed to a supported recogniser.
+
+Measured (ACCURACY_EVALUATION.md): script + orientation 92/96 corpus pages (the 4 misses are
+sideways Marathi scans OSD could not orient; they become `script_uncertain`, not misrouted);
+0/4 unsupported scripts misrouted; Hindi/Marathi identification 24/24; mixed pages 10/10
+routed with CER ≤ 0.009.
+
+**Routing:** for a page with an Indian script plus Latin (either dominant), the Indian-script
+recogniser goes first, because Indian-script recognisers include Latin and the English
+recogniser cannot read Indian scripts. Two different Indian scripts are flagged `mixed_script`.
+For explicit languages, OSD is used for orientation only (`NGOCR_OCR_DETECT_ORIENTATION`),
+and script mismatch is judged from the engine's own output. Cost on the laptop: about 4 s/page
+for auto (OSD + census), about 1 s for orientation only.
+
+**Review routing:** nothing is guessed. Pages that cannot be read reliably get status
+`unsupported` (not OCRed) or `review.needs_review` with reasons (LANGUAGE_SUPPORT.md). The
+confidence thresholds (page 0.85, line 0.70) were set from the corpus. Confidence alone does
+not catch a systematically wrong recogniser (PaddleOCR Kannada: CER 0.39 at confidence 0.94),
+which is why enablement is by measurement.
+
+### ADR-0024: Handwriting is experimental for English and unsupported for Indian scripts (2026-10-23)
+Decided by the owner after licence review. No openly licensed Indian-script handwriting model
+has clean training-data provenance: the candidates are trained on IIIT research-only datasets
+or disclose no data (MODEL_INVENTORY.md lists the rejects). Indian-script handwriting pages
+are therefore returned `unsupported` with `handwriting_unsupported`. English handwriting uses
+PaddleOCR `PP-OCRv5_server_rec` (Apache-2.0; same stack and lockdown, no new dependencies)
+through the `paddle_handwriting` engine (`handwriting: true` on the OCR request). It is
+**experimental**: every result carries `handwriting_unverified` and is routed to review until
+a language is measured on real samples and listed in `NGOCR_OCR_HANDWRITING_VERIFIED_LANGUAGES`
+(empty by default). **Measured on synthetic handwriting fonts** (a weak proxy): CER 0.023 for
+the handwriting recogniser against 0.005 for the printed recogniser. On some inputs it drops
+English word spaces (a Chinese-centric model), so it is not an improvement on this proxy.
+Real-handwriting performance is unknown (OD-23).
+
 ## Open decisions (defaults in force until decided)
 
 | ID | Question | Default assumption |
@@ -238,20 +286,23 @@ OCR runs synchronously in the request for now (ADR-0012).
 | OD-2 | Queue broker | Valkey (BSD-3-Clause) |
 | OD-3 | Handwriting model | None selected. Candidates are license-reviewed in the handwriting phase; **stop and report** if none is clearly licensed |
 | OD-4 | PaddleOCR coverage for te/hi/ta/kn/mr on CPU | **Measured on the synthetic corpus (Phase 4)**: see ACCURACY_EVALUATION.md. Real-scan accuracy remains unmeasured |
-| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 5) |
+| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 6) |
 | OD-6 | API authentication | API keys (hashed in DB) for system integrations, plus session login for the review UI; OIDC optional later |
 | OD-7 | Test-client transport | Starlette warns that `httpx` is deprecated in favour of `httpx2`. Migration is held for approval (new dependency) |
 | OD-8 | GitHub Actions pinning | Pinned to major tags today; pin to commit SHAs before the first protected-branch merge |
 | OD-9 | Untracked empty `requirements.txt` | Left untouched; superseded by `requirements.in`/`.lock`. Propose deleting it |
 | OD-10 | Git remote is a placeholder (`YOUR_USERNAME`) | No pushes or commits until the owner authorizes them and sets the remote |
 | OD-11 | Dev host is Ubuntu 26.04, target is 24.04 | CI runs on `ubuntu-24.04`; containers will use a 24.04 base (OD-1) |
-| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 5 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
+| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 6 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
 | OD-13 | Retention of rejected uploads | Deleted immediately; only the audit event (sha256, size, code) remains. Alternative: a quarantine hold for security review |
 | OD-14 | Rotated PDF pages | `rotation` is recorded. Text bounding boxes are in unrotated page space with a top-left origin, while rendered images follow PDFium's display orientation. Reconcile in Phase 6 (layout) |
 | OD-15 | Upload spooling | Starlette spools multipart files over 1 MiB to `TMPDIR` before the handler runs (size-capped by the body limit). Default: set `TMPDIR` to a directory on the protected data volume in deployment |
 | OD-16 | Storage growth and retention | About 4–6 MB per scanned page at 300 DPI (about 40–60 GB/day at 10k pages/day). Default: none yet. Propose a retention period per tree (derived artefacts can be regenerated from originals) before Phase 10 |
 | OD-17 | Per-language engine choice | **Decided 2026-10-22 on measurement:** Kannada → Tesseract-primary (PaddleOCR CER 0.388 vs Tesseract 0.013). Others PaddleOCR-primary (see OD-21) |
-| OD-18 | Page-level 180° orientation for Indic scripts | Not detected (the text-line classifier is English-only, ADR-0021). Evaluate PaddleOCR's document-orientation classifier (`PP-LCNet_x1_0_doc_ori`) or Tesseract OSD |
+| OD-18 | Page-level 180° orientation for Indic scripts | **Resolved 2026-10-23 (ADR-0023):** Tesseract OSD orientation is applied before OCR for every script; measured correct on all upright/180° corpus pages. Evaluate PaddleOCR's document-orientation classifier (`PP-LCNet_x1_0_doc_ori`) or Tesseract OSD |
 | OD-19 | OCR throughput vs 10k pages/day | About 6–7 s/page for PaddleOCR on a 2-core laptop (ACCURACY_EVALUATION.md). 10k pages/day is about 19 core-hours/day, so it must be measured on the reference server before sizing (Phase 10) |
-| OD-20 | Mixed-language pages | PaddleOCR recognises one script per call (first requested language); Tesseract accepts several (e.g. `hi+eng`). Default: first language decides the Paddle model; document-level language detection in the classification phase |
+| OD-20 | Mixed-language pages | **Resolved 2026-10-23 (ADR-0023):** the census detects secondary scripts; Indian script + English pages use the Indian-script recogniser (reads Latin); two Indian scripts on a page are flagged for review |
 | OD-21 | Should more languages default to Tesseract? | On the synthetic corpus Tesseract equals or beats PaddleOCR for every language and is about 3x faster, but the corpus favours Tesseract (clean font renders). Default: keep PaddleOCR primary except Kannada until a real-document evaluation set is measured; then decide per language |
+| OD-22 | Better English handwriting recogniser | `PP-OCRv5_server_rec` underperformed the printed model on the synthetic proxy and drops word spaces. Candidates to evaluate on real samples: `PP-OCRv6_medium_rec` (Apache-2.0, claims handwritten English). TrOCR remains excluded (IAM non-commercial training data) |
+| OD-23 | Real handwriting evaluation set | Owner to supply consented samples (`evaluation/handwriting/README.md`; at least 30 pages from 5 writers per language). Until then, handwriting stays experimental (English) or unsupported (Indian scripts) |
+| OD-24 | Sideways pages in auto mode without preprocessing | OSD could not orient 4 sideways Marathi scans, which become `script_uncertain`. The default `standard` preprocessing turns 90° pages upright first; consider trying the census on 90° rotations when OSD is undetermined |

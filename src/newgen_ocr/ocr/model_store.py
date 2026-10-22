@@ -64,8 +64,10 @@ class ModelStore:
             if e.engine == engine and e.kind == kind and (name is None or e.name == name)
         ]
 
-    def for_language(self, engine: str, language: str) -> ModelEntry | None:
-        for entry in self.find(engine, "recognition"):
+    def for_language(
+        self, engine: str, language: str, kind: str = "recognition"
+    ) -> ModelEntry | None:
+        for entry in self.find(engine, kind):
             if language in entry.languages:
                 return entry
         return None

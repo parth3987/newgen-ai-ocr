@@ -145,6 +145,12 @@ our `opencv-python-headless` instead (ADR-0020).
 `tesseract-ocr` 5.5.0 (Apache-2.0) and its dependency Leptonica (BSD-2-Clause-like) are OS
 packages, installed with apt, not Python dependencies.
 
+### Evaluation-only fonts (not shipped)
+
+Handwriting-style fonts Caveat, Indie Flower, Patrick Hand, Shadows Into Light and Kalam
+(SIL Open Font License 1.1), fetched by `make fonts` from google/fonts at a pinned commit with
+hashes (`evaluation/fonts.lock.json`). Used only to render the synthetic handwriting corpus.
+
 ## Development and CI only (not shipped)
 
 pytest, pytest-cov, coverage, httpx, ruff, mypy, bandit, pip-audit, pip-licenses and their

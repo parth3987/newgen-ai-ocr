@@ -30,9 +30,9 @@ class PaddleEngine:
 
     Paddle predictors are not thread-safe; calls are serialised per engine instance.
     Paddle recognises one script per call: the first requested language selects the model.
+    With ``recognition_kind="handwriting_recognition"`` the same adapter serves as the
+    (experimental) handwriting engine, using the handwriting-capable recogniser (ADR-0023).
     """
-
-    name = "paddle"
 
     def __init__(
         self,
@@ -41,7 +41,12 @@ class PaddleEngine:
         detection_model: str,
         cpu_threads: int | None,
         enable_mkldnn: bool = True,
+        *,
+        name: str = "paddle",
+        recognition_kind: str = "recognition",
     ) -> None:
+        self.name = name
+        self.recognition_kind = recognition_kind
         self.store = store
         self.cache_dir = cache_dir
         self.detection_model = detection_model
@@ -70,7 +75,7 @@ class PaddleEngine:
     def _recognition(self, languages: Sequence[str]) -> ModelEntry:
         if not languages:
             raise AppError(ErrorCode.UNSUPPORTED_LANGUAGE, "At least one language is required")
-        entry = self.store.for_language("paddleocr", languages[0])
+        entry = self.store.for_language("paddleocr", languages[0], kind=self.recognition_kind)
         if entry is None:
             raise AppError(
                 ErrorCode.UNSUPPORTED_LANGUAGE, f"No PaddleOCR model for language {languages[0]}"
@@ -99,7 +104,7 @@ class PaddleEngine:
 
     def languages(self) -> frozenset[str]:
         present: set[str] = set()
-        for entry in self.store.find("paddleocr", "recognition"):
+        for entry in self.store.find("paddleocr", self.recognition_kind):
             if self.store.is_present(entry):
                 present.update(entry.languages)
         return frozenset(present)

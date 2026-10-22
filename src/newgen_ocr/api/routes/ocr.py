@@ -12,6 +12,7 @@ from fastapi import APIRouter, Path, Request
 from pydantic import BaseModel, Field
 
 from newgen_ocr.config import Settings
+from newgen_ocr.ocr.languages import LANGUAGES, LanguageInfo
 from newgen_ocr.ocr.models import OcrComparison, OcrRun
 from newgen_ocr.ocr.service import EngineStatus, OcrService
 from newgen_ocr.storage.local import DocumentStore
@@ -24,7 +25,10 @@ RunName = Annotated[str, Path(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
 
 class OcrRequest(BaseModel):
     engine: str = Field(default="auto", pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    # ISO 639-1 codes, or ["auto"] to detect the script per page (ADR-0023).
     languages: list[str] | None = Field(default=None, min_length=1, max_length=6)
+    # Use the handwriting engine; languages without one are returned as unsupported.
+    handwriting: bool = False
     # Preprocessing profile whose output images to read; None = configured default profile.
     preprocessing_profile: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,31}$")
     compare: bool = False
@@ -38,6 +42,12 @@ def _service(request: Request) -> OcrService:
 def _store(request: Request) -> DocumentStore:
     store: DocumentStore = request.app.state.store
     return store
+
+
+@router.get("/languages", response_model=list[LanguageInfo])
+def list_languages() -> list[LanguageInfo]:
+    """The supported-language matrix (docs/LANGUAGE_SUPPORT.md)."""
+    return list(LANGUAGES.values())
 
 
 @router.get("/ocr/engines", response_model=list[EngineStatus])
@@ -55,6 +65,7 @@ def run_ocr(request: Request, document_id: DocumentId, body: OcrRequest) -> OcrR
         body.languages or list(settings.ocr_default_languages),
         body.preprocessing_profile or settings.default_preprocessing_profile,
         compare=body.compare,
+        handwriting=body.handwriting,
     )
 
 

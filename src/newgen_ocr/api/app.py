@@ -22,7 +22,8 @@ from newgen_ocr.logging_config import configure_logging
 from newgen_ocr.ocr.engine import OcrEngine
 from newgen_ocr.ocr.model_store import ModelStore
 from newgen_ocr.ocr.paddle_engine import PaddleEngine
-from newgen_ocr.ocr.service import OcrService
+from newgen_ocr.ocr.script_detect import ScriptDetector
+from newgen_ocr.ocr.service import HANDWRITING_ENGINE, OcrService, ReviewPolicy
 from newgen_ocr.ocr.tesseract_engine import TesseractEngine
 from newgen_ocr.preprocessing.service import PreprocessingService
 from newgen_ocr.storage.local import DocumentStore
@@ -49,6 +50,15 @@ def build_engines(settings: Settings) -> dict[str, OcrEngine]:
             command=settings.tesseract_cmd,
             timeout_s=settings.ocr_page_timeout_s,
             threads=settings.ocr_cpu_threads,
+        ),
+        HANDWRITING_ENGINE: PaddleEngine(
+            models,
+            cache_dir=settings.data_dir / "cache" / "paddlex",
+            detection_model=settings.paddle_detection_model,
+            cpu_threads=settings.ocr_cpu_threads,
+            enable_mkldnn=settings.paddle_enable_mkldnn,
+            name=HANDWRITING_ENGINE,
+            recognition_kind="handwriting_recognition",
         ),
     }
 
@@ -85,6 +95,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         fallback=settings.ocr_fallback_engine,
         disagreement_threshold=settings.ocr_disagreement_threshold,
         language_primary=dict(settings.ocr_language_primary),
+        detector=ScriptDetector(
+            ModelStore(settings.models_dir, settings.models_lock),
+            command=settings.tesseract_cmd,
+            timeout_s=settings.ocr_page_timeout_s,
+        ),
+        detect_orientation=settings.ocr_detect_orientation,
+        review_policy=ReviewPolicy(
+            min_page_confidence=settings.ocr_min_page_confidence,
+            min_line_confidence=settings.ocr_min_line_confidence,
+            handwriting_verified=frozenset(settings.ocr_handwriting_verified_languages),
+        ),
     )
 
     # Starlette runs the last-added middleware first: request context wraps the body limit.

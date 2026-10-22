@@ -68,7 +68,7 @@ services on local SSD:
   encoding. For throughput, run several worker processes with `NGOCR_OPENCV_THREADS=1`
   rather than one process with many threads (applies from Phase 4, when workers exist).
 - At about 1.2 s/page on one core, 10,000 pages/day needs about 3.4 core-hours of
-  ingest+preprocessing, before OCR. OCR (Phase 5) is expected to dominate. It is unmeasured.
+  ingest+preprocessing, before OCR. OCR dominates (measured in Phase 4, see below).
 - **Storage:** about 4–6 MB per scanned page at 300 DPI (RGB source PNG plus greyscale
   preprocessed PNG; noisy scans compress poorly). 10,000 pages/day is about 40–60 GB/day.
   A retention policy is needed (OD-16).
@@ -115,3 +115,17 @@ Tesseract 5.5.0, one process, default OpenMP threads, same 36 pages: **1.37 s/pa
 (about 44 pages/min)**, 0.9–1.9 s by language and condition. The first call per language
 costs about 1.2–1.8 s (model load). That is about 3x PaddleOCR's throughput on this
 hardware.
+
+## Script identification (Phase 5, 2026-10-23)
+
+Same laptop. Per page, on corpus pages:
+
+| Mode | Work | Mean |
+|---|---|---|
+| `languages: ["auto"]` | OSD + census (Tesseract `eng+hin+tel+tam+kan` on a ~150 DPI-text copy) | **4.0 s** |
+| Explicit languages with `NGOCR_OCR_DETECT_ORIENTATION=true` (default) | OSD only | about 1 s |
+| `NGOCR_OCR_DETECT_ORIENTATION=false` | none | 0 |
+
+Auto mode therefore roughly doubles PaddleOCR's per-page time on this CPU (about 4 s + 4–6 s).
+Disable orientation detection only if inputs are known to be upright (e.g. after `standard`
+preprocessing).

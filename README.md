@@ -12,7 +12,10 @@ scanned PDFs and handwriting recognition.
 
 ## Status
 
-Phase 4 (OCR engines) is complete. The service ingests PDF/JPEG/PNG/TIFF safely, uses
+Phase 5 (language and handwriting support) is complete: per-page script identification
+(`languages: ["auto"]`), mixed Indian-script/English pages, a review path for unsupported or
+uncertain pages, and experimental English handwriting (see
+[LANGUAGE_SUPPORT](docs/LANGUAGE_SUPPORT.md)). Phase 4 (OCR engines) is complete. The service ingests PDF/JPEG/PNG/TIFF safely, uses
 embedded text from native PDF pages, assesses and preprocesses scanned pages, and runs
 PaddleOCR (primary; Tesseract for Kannada) or Tesseract (baseline/fallback) fully offline with pinned,
 hash-verified models for English, Hindi, Marathi, Telugu, Tamil and Kannada. Accuracy and
@@ -54,4 +57,5 @@ Configuration: see [.env.example](.env.example).
 | [THIRD_PARTY_NOTICES](docs/THIRD_PARTY_NOTICES.md) | Dependency licenses |
 | [OPERATIONS_RUNBOOK](docs/OPERATIONS_RUNBOOK.md) | Running and troubleshooting |
 | [PERFORMANCE](docs/PERFORMANCE.md) | Measured CPU timings and sizing notes |
+| [LANGUAGE_SUPPORT](docs/LANGUAGE_SUPPORT.md) | Supported languages, handwriting status, review routing |
 | [CHANGELOG](CHANGELOG.md) | Changes by phase |

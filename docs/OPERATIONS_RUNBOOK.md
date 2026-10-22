@@ -1,7 +1,7 @@
 # Operations Runbook
 
 Status: development stage. Only the API process exists. Compose services, backups and
-recovery are added in Phase 5 and Phase 10.
+recovery are added in Phase 6 and Phase 10.
 
 ## Start / stop (development)
 
@@ -39,6 +39,9 @@ All variables use the `NGOCR_` prefix. See `.env.example`.
 | `NGOCR_TESSERACT_CMD` | `tesseract` | Binary name or path |
 | `NGOCR_OCR_PAGE_TIMEOUT_S` | 300 | Tesseract per-page timeout |
 | `NGOCR_OCR_DISAGREEMENT_THRESHOLD` | 0.85 | Engine agreement below this flags a page for review |
+| `NGOCR_OCR_DETECT_ORIENTATION` | `true` | OSD orientation correction even with explicit languages (about 1 s/page) |
+| `NGOCR_OCR_MIN_PAGE_CONFIDENCE` / `NGOCR_OCR_MIN_LINE_CONFIDENCE` | 0.85 / 0.70 | Review thresholds (heuristic, LANGUAGE_SUPPORT.md) |
+| `NGOCR_OCR_HANDWRITING_VERIFIED_LANGUAGES` | `[]` | Languages whose handwriting is verified on real samples; empty = always review |
 
 **Production startup fails** if the OpenCV build includes FFmpeg (the PyPI wheel) and
 `NGOCR_ENVIRONMENT=production`. Install the minimal source-built OpenCV wheel (ADR-0015).
@@ -79,7 +82,7 @@ is an orphan from a crash between the two commit steps. Report it before deletin
 | `GET /api/v1/ocr/engines` shows an engine unavailable | Models not fetched, or `tesseract` not installed | Run `make models` at staging; `apt install tesseract-ocr` |
 | `MODEL_INTEGRITY_ERROR` | A model file was changed or corrupted | Re-copy `models/` from the verified bundle; investigate as a security event |
 | First OCR call slow (about 10 s) | Model loading, once per language per process | Expected |
-| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 5 moves processing to workers |
+| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 6 moves processing to workers |
 
 ## Logs
 

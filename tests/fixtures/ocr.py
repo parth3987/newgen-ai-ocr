@@ -28,6 +28,7 @@ class FakeEngine:
         self.unavailable = unavailable
         self._languages = frozenset(languages)
         self.calls: list[tuple[tuple[int, ...], tuple[str, ...]]] = []
+        self.confidence = 0.9
 
     @property
     def name(self) -> str:
@@ -49,9 +50,25 @@ class FakeEngine:
         return [
             OcrLine(
                 text=line,
-                confidence=0.9,
+                confidence=self.confidence,
                 bbox=BoundingBox(x0=10, y0=10 + 30 * i, x1=200, y1=35 + 30 * i),
             )
             for i, line in enumerate(self.text.splitlines())
             if line
         ]
+
+
+class FakeDetector:
+    """Returns a fixed ScriptDetection and records whether the census was requested."""
+
+    def __init__(self, detection: object, available: bool = True) -> None:
+        self.detection = detection
+        self._available = available
+        self.calls: list[bool] = []
+
+    def available(self) -> bool:
+        return self._available
+
+    def detect(self, image: Image, identify_script: bool = True) -> object:
+        self.calls.append(identify_script)
+        return self.detection

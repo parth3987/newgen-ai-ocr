@@ -32,6 +32,9 @@ jobs:
       - name: Fetch pinned OCR models (staging step; hashes verified against models.lock.json)
         run: make models
 
+      - name: Fetch pinned evaluation fonts (handwriting tests; OFL, not shipped)
+        run: make fonts
+
       - name: Lint
         run: make lint
 

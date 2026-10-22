@@ -75,3 +75,4 @@ models/
 
 # Generated evaluation corpus (rebuild with scripts/evaluate_ocr.py --build)
 evaluation/corpus/generated/
+evaluation/fonts/

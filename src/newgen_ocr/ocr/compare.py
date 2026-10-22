@@ -28,12 +28,18 @@ def compare_runs(primary: OcrRun, secondary: OcrRun, threshold: float) -> OcrCom
 
 
 def _compare_page(a: OcrPage, b: OcrPage, threshold: float) -> PageComparison:
-    if a.status is PageOcrStatus.SKIPPED:
+    if a.status in (PageOcrStatus.SKIPPED, PageOcrStatus.UNSUPPORTED):
         return PageComparison(
             page_number=a.page_number,
             agreement=None,
             needs_review=False,
-            reason=f"skipped:{a.skip_reason}",
+            reason=f"skipped:{a.skip_reason or a.status.value}",
+        )
+    if b.status in (PageOcrStatus.SKIPPED, PageOcrStatus.UNSUPPORTED):
+        # The secondary engine is not enabled for this page's language (or the page was
+        # outside the comparison); the primary result's own review stands.
+        return PageComparison(
+            page_number=a.page_number, agreement=None, needs_review=False, reason="not_compared"
         )
     if PageOcrStatus.FAILED in (a.status, b.status):
         return PageComparison(

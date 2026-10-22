@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "comment": "Handwriting-style fonts (SIL OFL 1.1) for the synthetic handwriting evaluation corpus only; never shipped. Fetch with scripts/fetch_models.py --lock evaluation/fonts.lock.json --models-dir evaluation/fonts",
+  "models": [
+    {
+      "id": "font/Caveat",
+      "engine": "evaluation",
+      "name": "Caveat",
+      "kind": "handwriting_font",
+      "languages": [
+        "en"
+      ],
+      "license": "OFL-1.1",
+      "training_data": "n/a",
+      "source": {
+        "type": "github",
+        "repo": "google/fonts",
+        "revision": "5e8a3ba899557829a76cfdac30fa512bda91d7ca"
+      },
+      "dir": "handwriting",
+      "files": {
+        "ofl/caveat/Caveat[wght].ttf": "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988"
+      }
+    },
+    {
+      "id": "font/IndieFlower",
+      "engine": "evaluation",
+      "name": "IndieFlower",
+      "kind": "handwriting_font",
+      "languages": [
+        "en"
+      ],
+      "license": "OFL-1.1",
+      "training_data": "n/a",
+      "source": {
+        "type": "github",
+        "repo": "google/fonts",
+        "revision": "5e8a3ba899557829a76cfdac30fa512bda91d7ca"
+      },
+      "dir": "handwriting",
+      "files": {
+        "ofl/indieflower/IndieFlower-Regular.ttf": "ccc94b22b156e9c5dfe50fd051f01b097600b252c24473e624bb43a143140a94"
+      }
+    },
+    {
+      "id": "font/PatrickHand",
+      "engine": "evaluation",
+      "name": "PatrickHand",
+      "kind": "handwriting_font",
+      "languages": [
+        "en"
+      ],
+      "license": "OFL-1.1",
+      "training_data": "n/a",
+      "source": {
+        "type": "github",
+        "repo": "google/fonts",
+        "revision": "5e8a3ba899557829a76cfdac30fa512bda91d7ca"
+      },
+      "dir": "handwriting",
+      "files": {
+        "ofl/patrickhand/PatrickHand-Regular.ttf": "0f173b3e6cb6d1af25babf7f0057c5ac4ee11f9992b0469bb817e967ef4ad0fc"
+      }
+    },
+    {
+      "id": "font/ShadowsIntoLight",
+      "engine": "evaluation",
+      "name": "ShadowsIntoLight",
+      "kind": "handwriting_font",
+      "languages": [
+        "en"
+      ],
+      "license": "OFL-1.1",
+      "training_data": "n/a",
+      "source": {
+        "type": "github",
+        "repo": "google/fonts",
+        "revision": "5e8a3ba899557829a76cfdac30fa512bda91d7ca"
+      },
+      "dir": "handwriting",
+      "files": {
+        "ofl/shadowsintolight/ShadowsIntoLight.ttf": "1347863151acdc00fa281daaba1a3543dbce5870b55f9cf7479a15bb84007681"
+      }
+    },
+    {
+      "id": "font/Kalam",
+      "engine": "evaluation",
+      "name": "Kalam",
+      "kind": "handwriting_font",
+      "languages": [
+        "en",
+        "hi",
+        "mr"
+      ],
+      "license": "OFL-1.1",
+      "training_data": "n/a",
+      "source": {
+        "type": "github",
+        "repo": "google/fonts",
+        "revision": "5e8a3ba899557829a76cfdac30fa512bda91d7ca"
+      },
+      "dir": "handwriting",
+      "files": {
+        "ofl/kalam/Kalam-Regular.ttf": "57cecb63d4608019371954274ae1d8c397764debd5b19d4a33c1efa4dc923c0b"
+      }
+    }
+  ]
+}

@@ -47,11 +47,81 @@ class EngineInfo(BaseModel):
     parameters: dict[str, str | int | float | bool]
 
 
+# Calibrated on the corpus: correct OSD orientations had confidence >= 5.0; noise 0.79.
+MIN_ORIENTATION_CONFIDENCE = 2.0
+
+
+class DetectionStatus(StrEnum):
+    DETECTED = "detected"
+    UNCERTAIN = "uncertain"  # OSD answered with low confidence
+    UNDETERMINED = "undetermined"  # OSD could not decide (e.g. too little text)
+    UNAVAILABLE = "unavailable"  # tesseract or osd model missing
+
+
+class ScriptDetection(BaseModel):
+    """Page-level script and orientation (Tesseract OSD; ADR-0023)."""
+
+    status: DetectionStatus
+    script: str | None = None  # decided dominant script (supported, or a named unsupported one)
+    script_confidence: float | None = None  # census share, or OSD confidence if unsupported
+    secondary_scripts: list[str] = []  # other supported scripts with >= 10% of characters
+    osd_script: str | None = None
+    osd_script_confidence: float | None = None
+    census: dict[str, float] = {}  # script shares of the all-languages recognition pass
+    census_mean_confidence: float | None = None
+    orientation_deg: int | None = None  # clockwise rotation that makes the page upright
+    orientation_confidence: float | None = None
+    method: str = "tesseract-osd"
+    duration_ms: float = 0.0
+
+    @property
+    def orientation_reliable(self) -> bool:
+        return (
+            self.orientation_deg is not None
+            and (self.orientation_confidence or 0.0) >= MIN_ORIENTATION_CONFIDENCE
+        )
+
+
+class LanguageGuess(BaseModel):
+    """Text-based script census and language identification of recognised text."""
+
+    languages: list[str]  # most likely first
+    scripts: dict[str, float]  # share of letters per script
+    mixed_script: bool
+    uncertain: bool
+    reason: str
+
+
 class PageOcrStatus(StrEnum):
     OK = "ok"
     EMPTY = "empty"  # engine ran and found no text
-    SKIPPED = "skipped"  # see skip_reason
+    SKIPPED = "skipped"  # not applicable, see skip_reason (e.g. native text)
+    UNSUPPORTED = "unsupported"  # cannot be recognised reliably; see review.reasons
     FAILED = "failed"  # see error_code
+
+
+class ReviewReason(StrEnum):
+    """Why a page needs human review (ADR-0023). A page may have several."""
+
+    UNSUPPORTED_SCRIPT = "unsupported_script"
+    SCRIPT_UNCERTAIN = "script_uncertain"
+    SCRIPT_MISMATCH = "script_mismatch"  # detected script differs from the requested language
+    LANGUAGE_NOT_ENABLED = "language_not_enabled"
+    HANDWRITING_UNSUPPORTED = "handwriting_unsupported"
+    HANDWRITING_UNVERIFIED = "handwriting_unverified"
+    MIXED_SCRIPT = "mixed_script"
+    LOW_CONFIDENCE = "low_confidence"
+    LOW_CONFIDENCE_LINES = "low_confidence_lines"
+    EMPTY_RESULT = "empty_result"
+    OCR_FAILED = "ocr_failed"
+    LOW_QUALITY = "low_quality"
+    ENGINE_DISAGREEMENT = "engine_disagreement"
+
+
+class PageReview(BaseModel):
+    needs_review: bool
+    reasons: list[ReviewReason] = []
+    details: list[str] = []
 
 
 class OcrPage(BaseModel):
@@ -72,6 +142,14 @@ class OcrPage(BaseModel):
     text: str = ""
     mean_confidence: float | None = None
     duration_ms: float = 0.0
+    languages: list[str] = []  # languages the engine was asked to read for this page
+    handwriting: bool = False
+    # Clockwise rotation applied before OCR (from script detection); coordinates refer to
+    # the rotated image.
+    image_rotation_deg: int = 0
+    script: ScriptDetection | None = None
+    detected_language: LanguageGuess | None = None
+    review: PageReview = PageReview(needs_review=False)
 
 
 class OcrRun(BaseModel):
@@ -84,6 +162,8 @@ class OcrRun(BaseModel):
     pipeline_version: str
     runtime: RuntimeInfo
     total_ms: float
+    handwriting: bool = False
+    pages_needing_review: int = 0
     pages: list[OcrPage]
 
 

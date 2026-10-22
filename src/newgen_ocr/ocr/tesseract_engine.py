@@ -12,7 +12,7 @@ import io
 import os
 import re
 import shutil
-import subprocess  # nosec B404 - fixed argv, no shell
+import subprocess  # nosec B404
 from collections.abc import Sequence
 from functools import lru_cache
 
@@ -185,7 +185,8 @@ class TesseractEngine:
             "tessedit_create_tsv=1",
         ]
         try:
-            result = subprocess.run(  # noqa: S603  # nosec B603 - fixed argv, no shell
+            # Fixed argv, no shell.
+            result = subprocess.run(  # noqa: S603  # nosec B603
                 argv,
                 input=buffer.getvalue(),
                 capture_output=True,

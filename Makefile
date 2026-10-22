@@ -16,10 +16,10 @@ UV_COMPILE     := uv pip compile --python-version $(PYTHON_VERSION) \
 GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.21.2
 REPORTS        := reports
 
-.PHONY: help venv lock models lint format typecheck test security secrets licenses sbom bench eval check run clean
+.PHONY: help venv lock models fonts eval-languages eval-handwriting lint format typecheck test security secrets licenses sbom bench eval check run clean
 
 help:
-	@grep -E '^[a-z]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-10s %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-17s %s\n", $$1, $$2}'
 
 venv: ## Create .venv from the hash-pinned lock files
 	uv venv --clear --python $(PYTHON_VERSION) $(VENV)
@@ -28,6 +28,9 @@ venv: ## Create .venv from the hash-pinned lock files
 
 models: ## STAGING ONLY (network): fetch pinned OCR models into models/ and verify hashes
 	$(BIN)/python scripts/fetch_models.py
+
+fonts: ## STAGING ONLY (network): fetch pinned OFL handwriting fonts (evaluation only)
+	$(BIN)/python scripts/fetch_models.py --lock evaluation/fonts.lock.json --models-dir evaluation/fonts
 
 lock: ## Re-resolve and hash-pin requirements*.lock (review the diff!)
 	$(UV_COMPILE) requirements.in -o requirements.lock
@@ -69,6 +72,12 @@ bench: ## CPU benchmark of quality assessment and preprocessing (docs/PERFORMANC
 
 eval: ## OCR accuracy + throughput on the synthetic baseline corpus (docs/ACCURACY_EVALUATION.md)
 	$(BIN)/python scripts/evaluate_ocr.py --build
+
+eval-languages: ## Script/orientation ID, hi/mr ID and mixed-script routing evaluation
+	$(BIN)/python scripts/evaluate_language_id.py
+
+eval-handwriting: ## Handwriting evaluation (synthetic fonts; --dataset DIR for real samples)
+	$(BIN)/python scripts/evaluate_handwriting.py
 
 check: lint typecheck test security licenses ## Full local acceptance gate (plus `make secrets`)
 

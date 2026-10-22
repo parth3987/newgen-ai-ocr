@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -34,10 +35,11 @@ def _out(message: str) -> None:
 
 
 def _url(source: dict[str, str], filename: str) -> str:
+    path = urllib.parse.quote(filename)
     if source["type"] == "huggingface":
-        return f"https://huggingface.co/{source['repo']}/resolve/{source['revision']}/{filename}"
+        return f"https://huggingface.co/{source['repo']}/resolve/{source['revision']}/{path}"
     if source["type"] == "github":
-        return f"https://raw.githubusercontent.com/{source['repo']}/{source['revision']}/{filename}"
+        return f"https://raw.githubusercontent.com/{source['repo']}/{source['revision']}/{path}"
     raise ValueError(f"unknown source type {source['type']!r}")
 
 
@@ -64,7 +66,9 @@ def _published_lfs_hashes(source: dict[str, str]) -> dict[str, str]:
 def _published_git_blobs(source: dict[str, str]) -> dict[str, str]:
     if source["type"] != "github":
         return {}
-    url = f"https://api.github.com/repos/{source['repo']}/git/trees/{source['revision']}"
+    url = (
+        f"https://api.github.com/repos/{source['repo']}/git/trees/{source['revision']}?recursive=1"
+    )
     tree: dict[str, Any] = json.loads(_get(url))
     return {
         entry["path"]: entry["sha"] for entry in tree.get("tree", []) if entry["type"] == "blob"
@@ -79,8 +83,8 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def fetch(models_dir: Path, only: str | None, record: bool) -> int:
-    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+def fetch(lock_path: Path, models_dir: Path, only: str | None, record: bool) -> int:
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
     changed = False
     failures = 0
     for model in lock["models"]:
@@ -91,7 +95,8 @@ def fetch(models_dir: Path, only: str | None, record: bool) -> int:
         published: dict[str, str] | None = None
         blobs: dict[str, str] = {}
         for filename, expected in model["files"].items():
-            target = target_dir / filename
+            # Repository paths may be nested; files are stored flat under the model dir.
+            target = target_dir / Path(filename).name
             if expected and target.is_file() and _sha256(target.read_bytes()) == expected:
                 _out(f"ok        {model['id']}/{filename}")
                 continue
@@ -128,18 +133,21 @@ def fetch(models_dir: Path, only: str | None, record: bool) -> int:
             tmp.write_bytes(data)
             os.replace(tmp, target)
     if changed:
-        LOCK.write_text(json.dumps(lock, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        _out(f"updated {LOCK.name}; review and commit it")
+        lock_path.write_text(
+            json.dumps(lock, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        _out(f"updated {lock_path.name}; review and commit it")
     return 1 if failures else 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--lock", type=Path, default=LOCK)
     parser.add_argument("--models-dir", type=Path, default=ROOT / "models")
     parser.add_argument("--only", help="only model ids starting with this prefix")
     parser.add_argument("--record", action="store_true", help="record hashes for new models")
     args = parser.parse_args()
-    return fetch(args.models_dir, args.only, args.record)
+    return fetch(args.lock, args.models_dir, args.only, args.record)
 
 
 if __name__ == "__main__":

@@ -298,6 +298,48 @@
       "files": {
         "kan.traineddata": "6f195e0f33f0ec5118c97eff777ed70ac453d67c32bf06a43f79dab875f8ebfe"
       }
+    },
+    {
+      "id": "paddle/PP-OCRv5_server_rec",
+      "engine": "paddleocr",
+      "name": "PP-OCRv5_server_rec",
+      "kind": "handwriting_recognition",
+      "languages": [
+        "en"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "huggingface",
+        "repo": "PaddlePaddle/PP-OCRv5_server_rec",
+        "revision": "b26c3587fda8da3c8ec0ce357214b4d661ff1558"
+      },
+      "dir": "paddle/PP-OCRv5_server_rec",
+      "files": {
+        "inference.json": "8e6e12e5d42531840310977fffb58165bf889fc5061408c5a8afdb6985f47fcb",
+        "inference.pdiparams": "63853f062a5f4089befc16f565a68277618e0da5cb45468b49d11079de0ada77",
+        "inference.yml": "2c719dba044c4e2228aef8ff92f5f575394d75d24c16de096a33b7cfd902f66d"
+      }
+    },
+    {
+      "id": "tesseract/osd",
+      "engine": "tesseract",
+      "name": "tessdata_best/osd",
+      "kind": "script_detection",
+      "languages": [
+        "*"
+      ],
+      "license": "Apache-2.0",
+      "training_data": "not disclosed by vendor (risk accepted, ADR-0021)",
+      "source": {
+        "type": "github",
+        "repo": "tesseract-ocr/tessdata_best",
+        "revision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec"
+      },
+      "dir": "tesseract/tessdata",
+      "files": {
+        "osd.traineddata": "9cf5d576fcc47564f11265841e5ca839001e7e6f38ff7f7aacf46d15a96b00ff"
+      }
     }
   ]
 }

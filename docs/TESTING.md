@@ -14,6 +14,9 @@ make sbom        # CycloneDX SBOM -> reports/
 make bench       # CPU benchmark of assessment/preprocessing (docs/PERFORMANCE.md)
 make models      # STAGING (network): fetch + verify pinned OCR models into models/
 make eval        # OCR accuracy (CER/WER) + throughput on the synthetic corpus
+make fonts       # STAGING (network): fetch pinned OFL handwriting fonts (evaluation only)
+make eval-languages    # script/orientation ID, hi/mr ID, mixed-script routing
+make eval-handwriting  # handwriting (synthetic fonts; --dataset DIR for real samples)
 make check       # lint + typecheck + test + security + licenses
 ```
 
@@ -29,7 +32,7 @@ tests/
   fixtures/pages.py  synthetic A4 text pages and degradations: rotation, quarter turns,
                      Gaussian and salt-and-pepper noise, blur, fading, shadow, blank
   unit/              fast, no external services
-  integration/       HTTP API + real local storage (Phase 2); Postgres/Valkey [planned P5]
+  integration/       HTTP API + real local storage (Phase 2); Postgres/Valkey [planned P6]
   e2e/               upload → OCR → export on fixtures       [planned P5+]
 ```
 

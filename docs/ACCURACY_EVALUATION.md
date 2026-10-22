@@ -1,7 +1,7 @@
 # Accuracy Evaluation
 
-Status: **synthetic baseline measured (Phase 4, 2026-10-22). No real-document measurements
-exist yet.** This project makes no accuracy claim (in particular no universal "99%") beyond
+Status: **synthetic baseline measured (Phases 4–5, 2026-10-22/23). No real-document or real-handwriting
+measurements exist yet.** This project makes no accuracy claim (in particular no universal "99%") beyond
 what is measured below, under the stated conditions.
 
 ## Metrics
@@ -128,3 +128,54 @@ languages stay PaddleOCR-primary until a real-document evaluation decides (OD-21
 Real scans, photographs, handwriting, tables/forms, mixed-language pages, confidence
 calibration, field-level accuracy, and the effect of each preprocessing profile on OCR
 accuracy (the harness supports `--preprocess <profile>`).
+
+## Script, orientation and language identification (Phase 5, 2026-10-23)
+
+`make eval-languages` (`scripts/evaluate_language_id.py`); raw data `reports/language_id.json`.
+
+| Measure | Result |
+|---|---|
+| Script + orientation, 36 corpus pages × 0°/180° (+ 90°/270° on scan pages): 96 cases | **92/96 (95.8%)**. All 4 misses are sideways Marathi scans whose orientation OSD could not determine; they end `script_uncertain` (routed to review), not misrouted |
+| OSD-only script answer on the same pages | Also 95.8% at this text size, but unreliable for Devanagari at other sizes (150 DPI: Marathi → "Cyrillic"; confidence 0.4 to 47). Hence the census (ADR-0023) |
+| Unsupported scripts (Bengali, Gujarati, Arabic, Russian) | **0/4 routed to a supported recogniser**. Gujarati → uncertain; the others named (Bengali was named "Arabic" by OSD in one 150 DPI test, still routed to review) |
+| Blank page | `undetermined` (review), never guessed |
+| Hindi vs Marathi from OCR text, both engines, 12 pages | **24/24** correct, 0 uncertain. Caveat: the corpus text and the function-word lists were written by the same author; real-text accuracy is unmeasured |
+| Detection cost | 4.0 s/page mean (OSD + census) on the laptop CPU |
+
+### Mixed-script pages
+
+| Page | Detected | Routed languages | Engine | CER |
+|---|---|---|---|---|
+| hi, Hindi-dominant + English | Devanagari (+Latin) | hi, mr, en | paddle | 0.009 |
+| hi, English-dominant + Hindi | Latin (+Devanagari) | hi, mr, en | paddle | 0.002 |
+| mr, Marathi-dominant + English | Devanagari (+Latin) | hi, mr, en | paddle | 0.007 |
+| mr, English-dominant + Marathi | Latin (+Devanagari) | hi, mr, en | paddle | 0.002 |
+| te, Telugu-dominant + English | Telugu (+Latin) | te, en | paddle | 0.006 |
+| te, English-dominant + Telugu | Latin (+Telugu) | te, en | paddle | 0.005 |
+| ta, Tamil-dominant + English | Tamil (+Latin) | ta, en | paddle | 0.002 |
+| ta, English-dominant + Tamil | Latin (+Tamil) | ta, en | paddle | 0.002 |
+| kn, Kannada-dominant + English | Kannada (+Latin) | kn, en | tesseract | 0.000 |
+| kn, English-dominant + Kannada | Latin (+Kannada) | kn, en | tesseract | 0.000 |
+
+Before the census fix, Devanagari-dominant mixed pages scored 0.595 Devanagari / 0.405 Latin
+and were rejected as uncertain. The mixed-coverage rule (ADR-0023) was added for them.
+
+## Handwriting (Phase 5, 2026-10-23): synthetic proxy only
+
+`make eval-handwriting` (`scripts/evaluate_handwriting.py`); raw data `reports/handwriting.json`.
+English corpus lines (8 per page) rendered in 5 OFL handwriting-style fonts (Caveat, Indie
+Flower, Patrick Hand, Shadows Into Light, Kalam) at 200 and 300 DPI: 10 pages per engine.
+**Font renders are far easier than real handwriting; these numbers cannot verify support.**
+
+| Language | Engine | Pages | CER mean | CER worst | WER mean |
+|---|---|---|---|---|---|
+| en | paddle (printed recogniser) | 10 | 0.005 | 0.014 | 0.024 |
+| en | **paddle_handwriting** (`PP-OCRv5_server_rec`) | 10 | 0.023 | **0.176** | 0.097 |
+| en | tesseract | 10 | 0.029 | 0.088 | 0.104 |
+| hi (Kalam Devanagari; informational, unsupported) | paddle | 2 | 0.029 | 0.039 | 0.125 |
+| hi (informational, unsupported) | tesseract | 2 | 0.036 | 0.039 | 0.125 |
+
+Finding: on Patrick Hand at 300 DPI the handwriting recogniser dropped almost every word
+space (WER 0.63). It is a Chinese/English model, and Chinese has no word spaces. On this proxy it
+is not better than the printed recogniser. Its value on *real* handwriting is unmeasured
+(OD-22, OD-23). Real samples: see `evaluation/handwriting/README.md`.

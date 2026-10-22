@@ -76,7 +76,7 @@ src/newgen_ocr/
     routes/health.py   /health/live, /health/ready                       [implemented]
     routes/documents.py upload, manifest, page text, page image          [implemented P2]
     routes/preprocessing.py profiles, runs, preprocessed images          [implemented P3]
-    routes/ocr.py      engines, OCR runs, comparison                     [implemented P4]
+    routes/ocr.py      engines, languages, OCR runs, comparison          [implemented P4-5]
     routes/...         jobs, results, review                             [planned]
   ingestion/
     formats.py         signature detection, extension check              [implemented P2]
@@ -97,8 +97,8 @@ src/newgen_ocr/
     service.py         per-document runs, storage, audit                 [implemented P3]
     models.py          PreprocessingRun / PagePreprocessing / StepRecord [implemented P3]
   storage/local.py     originals / derived / staging / quarantine        [implemented P2]
-  db/                  SQLAlchemy models, Alembic migrations             [planned P5]
-  worker/              Celery app + idempotent tasks                     [planned P5]
+  db/                  SQLAlchemy models, Alembic migrations             [planned P6]
+  worker/              Celery app + idempotent tasks                     [planned P6]
   ocr/
     engine.py          OcrEngine protocol, reading order, page orientation [implemented P4]
     models.py          OcrLine / OcrPage / OcrRun / OcrComparison schema   [implemented P4]
@@ -107,7 +107,10 @@ src/newgen_ocr/
     paddle_engine.py   PaddleOCR adapter (primary)                         [implemented P4]
     tesseract_engine.py Tesseract CLI adapter (baseline/fallback)          [implemented P4]
     compare.py         engine agreement + review flag (never merges)       [implemented P4]
-    service.py         per-document runs: page policy, fallback, storage   [implemented P4]
+    service.py         per-page plans: script ID, routing, fallback, review [implemented P4-5]
+    languages.py       supported-language matrix (single source of truth) [implemented P5]
+    script_detect.py   OSD orientation + census script identification      [implemented P5]
+    language_id.py     text script census, Hindi/Marathi identification    [implemented P5]
   evaluation/
     metrics.py         CER / WER / agreement (vectorised Levenshtein)      [implemented P4]
     corpus.py          synthetic multilingual corpus with ground truth     [implemented P4]
@@ -133,11 +136,11 @@ Dependency rule: `api` and `worker` may depend on domain modules; domain modules
 | Errors | Stable `ErrorCode` values in a uniform envelope; unhandled errors return a generic 500 and are logged with traceback [implemented] |
 | Health | Liveness (process up) vs readiness (dependencies usable) [implemented; readiness covers `data_dir` only] |
 | API docs | Swagger UI/ReDoc disabled (they load CDN assets); OpenAPI JSON at `/api/v1/openapi.json` [implemented] |
-| Auth | Not yet implemented. See DECISIONS.md open decision OD-6 [planned P5] |
+| Auth | Not yet implemented. See DECISIONS.md open decision OD-6 [planned P6] |
 | Document storage | Local filesystem, originals separate from derived, atomic commit (ADR-0013) [implemented] |
 | Audit | JSONL lifecycle events without content or filenames (ADR-0014) [implemented] |
 | Untrusted parsing | PDFium (serialised by a lock) and Pillow restricted to the detected format; in-process for now (OD-12) [implemented] |
 | Model integrity | `models.lock.json` pins revisions and SHA-256 per file; verified before first use; never downloaded at runtime (ADR-0021) [implemented] |
-| OpenCV supply | PyPI wheel in development; minimal source build required in production, enforced at startup (ADR-0015) [guard implemented, build planned P5] |
+| OpenCV supply | PyPI wheel in development; minimal source build required in production, enforced at startup (ADR-0015) [guard implemented, build planned P6] |
 | Source preservation | Source page images are immutable; preprocessing outputs live per profile beside them (ADR-0018) [implemented] |
 | Egress control | Host firewall / isolated container network. See OFFLINE_DEPLOYMENT.md [planned P10]. FastAPI telemetry disabled in code (ADR-0008) [implemented] |

@@ -4,6 +4,24 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 5: Language and handwriting support (2026-10-23)
+- Supported-language matrix (`ocr/languages.py`, `GET /api/v1/languages`,
+  docs/LANGUAGE_SUPPORT.md); PaddleOCR disabled for Kannada by measurement.
+- Script and orientation identification: Tesseract OSD (orientation) + a recognition census
+  (script), per-page routing with `languages: ["auto"]`, Indian-script + English mixed pages
+  routed to the Indian-script recogniser; Hindi/Marathi identification from text.
+- Review routing: `unsupported` page status and 13 machine-readable review reasons
+  (unsupported/uncertain script, mismatch, handwriting, low confidence, low quality, …).
+- Experimental English handwriting engine (`paddle_handwriting`, `PP-OCRv5_server_rec`),
+  always reviewed; Indian-script handwriting unsupported (no clean-provenance model).
+- New pinned models: `PP-OCRv5_server_rec`, `tessdata_best/osd`; evaluation-only OFL fonts
+  (`evaluation/fonts.lock.json`, `make fonts`); fetch script supports any lock file.
+- Evaluations: `scripts/evaluate_language_id.py`, `scripts/evaluate_handwriting.py`
+  (+ real-sample harness, `evaluation/handwriting/README.md`); `make eval-languages`,
+  `make eval-handwriting`.
+- Fixed an import cycle (schemas consolidated in `ocr/models.py`).
+- Implementation plan renumbered: persistence and jobs move to Phase 6.
+
 ### Phase 4: Primary OCR and engine adapters (2026-10-22)
 - `OcrEngine` protocol and engine-independent OCR schema (text, confidence, bbox, polygon,
   words, orientation); runs record the engine version and exact model revisions and hashes.

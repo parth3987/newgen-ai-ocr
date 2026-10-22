@@ -6,6 +6,7 @@ import io
 from collections.abc import Iterator
 from pathlib import Path
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -163,7 +164,7 @@ def test_real_paddle_ocr_on_uploaded_telugu_scan(client: TestClient) -> None:
 
 @pytest.mark.models
 @pytest.mark.tesseract
-def test_real_auto_routes_kannada_to_tesseract_and_compares(client: TestClient) -> None:
+def test_real_auto_routes_kannada_to_tesseract(client: TestClient) -> None:
     lines = load_lines(ROOT / "evaluation" / "corpus" / "text", "kn")[:4]
     page = render_page(lines, DEFAULT_FONT_DIR / LANGUAGE_FONTS["kn"][0], 200)
     doc = _upload(client, build_pdf([PageSpec(jpeg=_jpeg(page), size=A4)]))
@@ -175,6 +176,96 @@ def test_real_auto_routes_kannada_to_tesseract_and_compares(client: TestClient) 
     assert result["lines"][0]["words"]  # Tesseract supplies word boxes
     assert cer("\n".join(lines), result["text"]) < 0.05
     comparison = client.get(f"{DOCS}/{doc}/ocr/comparison").json()
-    assert comparison["secondary"] == "paddle"
-    # PaddleOCR's Kannada model disagrees strongly, so the page is routed to review.
-    assert comparison["pages"][0]["needs_review"] is True
+    # PaddleOCR is not enabled for Kannada (language matrix), so there is nothing to compare.
+    assert comparison["pages"][0]["reason"] == "not_compared"
+    assert comparison["pages"][0]["needs_review"] is False
+
+
+# ---------------------------------------------------------------- Phase 5: languages, review
+
+
+def test_language_matrix_endpoint(client: TestClient) -> None:
+    matrix = {row["code"]: row for row in client.get("/api/v1/languages").json()}
+    assert set(matrix) == {"en", "hi", "mr", "te", "ta", "kn"}
+    assert matrix["kn"]["printed_engines"] == ["tesseract"]
+    assert matrix["en"]["handwriting"] == "experimental"
+    assert {matrix[c]["handwriting"] for c in ("hi", "mr", "te", "ta", "kn")} == {"unsupported"}
+
+
+def _scan(lines: list[str], language: str, dpi: int = 200, rotate180: bool = False) -> bytes:
+    page = render_page(lines, DEFAULT_FONT_DIR / LANGUAGE_FONTS[language][0], dpi)
+    if rotate180:
+        page = np.ascontiguousarray(page[::-1, ::-1])
+    return build_pdf([PageSpec(jpeg=_jpeg(page), size=A4)])
+
+
+@pytest.mark.models
+@pytest.mark.tesseract
+def test_auto_reads_english_page_with_hindi_lines(client: TestClient) -> None:
+    text = ROOT / "evaluation" / "corpus" / "text"
+    en, hi = load_lines(text, "en")[:6], load_lines(text, "hi")[:2]
+    top = render_page(en, DEFAULT_FONT_DIR / LANGUAGE_FONTS["en"][0], 200)[150:1300]
+    bottom = render_page(hi, DEFAULT_FONT_DIR / LANGUAGE_FONTS["hi"][0], 200)[150:500]
+    doc = _upload(client, build_pdf([PageSpec(jpeg=_jpeg(np.vstack([top, bottom])), size=A4)]))
+    response = client.post(f"{DOCS}/{doc}/ocr", json={"languages": ["auto"]})
+    assert response.status_code == 201, response.text
+    [page] = response.json()["pages"]
+    assert page["script"]["script"] == "Latin"
+    assert page["script"]["secondary_scripts"] == ["Devanagari"]
+    assert page["languages"][0] == "hi"  # Devanagari recogniser reads both scripts
+    assert cer("\n".join(en + hi), page["text"]) < 0.05
+    assert set(page["detected_language"]["languages"]) == {"en", "hi"}
+
+
+@pytest.mark.models
+@pytest.mark.tesseract
+def test_auto_corrects_upside_down_telugu(client: TestClient) -> None:
+    lines = load_lines(ROOT / "evaluation" / "corpus" / "text", "te")[:5]
+    doc = _upload(client, _scan(lines, "te", rotate180=True))
+    [page] = client.post(f"{DOCS}/{doc}/ocr", json={"languages": ["auto"]}).json()["pages"]
+    assert page["image_rotation_deg"] == 180
+    assert page["languages"] == ["te", "en"]
+    assert cer("\n".join(lines), page["text"]) < 0.05
+
+
+@pytest.mark.models
+@pytest.mark.tesseract
+def test_unsupported_script_page_goes_to_review(client: TestClient) -> None:
+    font = DEFAULT_FONT_DIR / "NotoSansBengali-Regular.ttf"
+    if not font.is_file():
+        pytest.skip("Bengali font not installed")
+    page = render_page(["এই চালানটি নিচে তালিকাভুক্ত পণ্য সরবরাহের নিশ্চয়তা দেয়।"] * 10, font, 200)
+    doc = _upload(client, build_pdf([PageSpec(jpeg=_jpeg(page), size=A4)]))
+    run = client.post(f"{DOCS}/{doc}/ocr", json={"languages": ["auto"]}).json()
+    [result] = run["pages"]
+    assert result["status"] == "unsupported"
+    assert result["review"]["needs_review"] is True
+    assert result["review"]["reasons"][0] in {"unsupported_script", "script_uncertain"}
+    assert result["text"] == ""
+    assert run["pages_needing_review"] == 1
+
+
+@pytest.mark.models
+def test_english_handwriting_is_experimental(client: TestClient) -> None:
+    font = ROOT / "evaluation" / "fonts" / "handwriting" / "IndieFlower-Regular.ttf"
+    if not font.is_file():
+        pytest.skip("handwriting fonts not fetched")
+    lines = load_lines(ROOT / "evaluation" / "corpus" / "text", "en")[:4]
+    doc = _upload(client, build_pdf([PageSpec(jpeg=_jpeg(render_page(lines, font, 200)), size=A4)]))
+    body = {"languages": ["en"], "handwriting": True}
+    run = client.post(f"{DOCS}/{doc}/ocr", json=body).json()
+    [page] = run["pages"]
+    assert page["engine"] == "paddle_handwriting"
+    assert "handwriting_unverified" in page["review"]["reasons"]
+    assert run["engines"][0]["models"][1]["id"] == "paddle/PP-OCRv5_server_rec"
+
+
+@pytest.mark.models
+def test_indic_handwriting_is_not_attempted(client: TestClient) -> None:
+    lines = load_lines(ROOT / "evaluation" / "corpus" / "text", "te")[:3]
+    doc = _upload(client, _scan(lines, "te"))
+    run = client.post(f"{DOCS}/{doc}/ocr", json={"languages": ["te"], "handwriting": True}).json()
+    [page] = run["pages"]
+    assert page["status"] == "unsupported"
+    assert page["review"]["reasons"][0] == "handwriting_unsupported"
+    assert run["engines"] == []

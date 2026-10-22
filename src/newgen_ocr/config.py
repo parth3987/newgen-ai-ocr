@@ -74,6 +74,19 @@ class Settings(BaseSettings):
     # Pages whose engines agree less than this (1 - CER between them) are flagged for review.
     ocr_disagreement_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
 
+    # Languages and review routing (ADR-0023).
+    # Run script/orientation detection (Tesseract OSD, ~1-1.7 s/page) even when languages are
+    # given: corrects 90/180/270 pages and flags script mismatches. Always on for "auto".
+    ocr_detect_orientation: bool = True
+    # Review thresholds. Heuristic, set from the baseline corpus (ACCURACY_EVALUATION.md);
+    # confidence does NOT catch a systematically wrong recogniser, so these are one signal
+    # among several.
+    ocr_min_page_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
+    ocr_min_line_confidence: float = Field(default=0.70, ge=0.0, le=1.0)
+    # Languages whose handwriting engine is verified on real samples. Empty: every
+    # handwriting result is routed to review.
+    ocr_handwriting_verified_languages: tuple[str, ...] = ()
+
     @model_validator(mode="after")
     def _check_ocr_engines(self) -> Settings:
         if self.ocr_fallback_engine == self.ocr_primary_engine:
