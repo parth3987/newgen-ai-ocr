@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# OCR output and uploaded documents
+data/uploads/
+data/processed/
+data/output/
+
+# Sensitive configuration
+*.pem
+*.key
