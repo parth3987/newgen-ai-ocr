@@ -1,0 +1,7 @@
+# Runtime dependencies (Phase 1). Pinned with hashes in requirements.lock.
+# Regenerate with: make lock
+# Every addition must be license-reviewed (docs/THIRD_PARTY_NOTICES.md).
+fastapi
+uvicorn
+pydantic
+pydantic-settings

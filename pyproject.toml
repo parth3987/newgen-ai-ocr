@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "newgen-ocr"
+version = "0.1.0"
+description = "New Gen AI OCR - Precision Data Extraction (self-hosted, offline, CPU-only)"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = { text = "Proprietary" }
+# Runtime dependencies are declared in requirements.in and pinned (with hashes)
+# in requirements.lock. They are intentionally not duplicated here.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---------------------------------------------------------------- Ruff
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "S",        # bandit rules
+    "N",        # pep8-naming
+    "SIM",      # simplify
+    "RUF",
+    "BLE",      # blind except
+    "T20",      # no print()
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # assert is the pytest idiom
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+packages = ["newgen_ocr"]
+plugins = ["pydantic.mypy"]
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["newgen_ocr"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
+
+# ---------------------------------------------------------------- bandit
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]

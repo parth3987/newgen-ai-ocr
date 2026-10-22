@@ -24,3 +24,16 @@ data/output/
 # Sensitive configuration
 *.pem
 *.key
+
+# All runtime document data (uploads, quarantine, renders, exports)
+data/
+
+# Tooling caches and build artefacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+*.egg-info/
+reports/

@@ -1,0 +1,13 @@
+# Development / CI tooling. Never installed in production images.
+# Constrained to the runtime lock so test and production versions match.
+-c requirements.lock
+pytest
+pytest-cov
+# Starlette TestClient transport. Starlette now prefers `httpx2`; migration is
+# pending approval (docs/DECISIONS.md, open decisions).
+httpx
+ruff
+mypy
+bandit[toml]
+pip-audit
+pip-licenses
