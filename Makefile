@@ -4,8 +4,15 @@
 PYTHON_VERSION := 3.11
 VENV           := .venv
 BIN            := $(VENV)/bin
+# ADR-0007: only resolve releases at least 14 days old.
+EXCLUDE_NEWER  := $(shell date -u -d '14 days ago' +%Y-%m-%d)
+# Security overrides (package=cutoff): newer releases admitted because the age-floor
+# version has known vulnerabilities. Remove each once the floor passes it. See ADR-0007.
+SECURITY_OVERRIDES := pillow=2026-10-22 certifi=2026-10-22
 UV_COMPILE     := uv pip compile --python-version $(PYTHON_VERSION) \
-                  --python-platform x86_64-manylinux_2_28 --generate-hashes -q
+                  --python-platform x86_64-manylinux_2_28 --generate-hashes -q --upgrade \
+                  --exclude-newer $(EXCLUDE_NEWER) \
+                  $(foreach o,$(SECURITY_OVERRIDES),--exclude-newer-package $(o))
 GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.21.2
 REPORTS        := reports
 
@@ -15,7 +22,7 @@ help:
 	@grep -E '^[a-z]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-10s %s\n", $$1, $$2}'
 
 venv: ## Create .venv from the hash-pinned lock files
-	uv venv --python $(PYTHON_VERSION) $(VENV)
+	uv venv --clear --python $(PYTHON_VERSION) $(VENV)
 	uv pip sync --python $(BIN)/python --require-hashes requirements.lock requirements-dev.lock
 	uv pip install --python $(BIN)/python --no-deps -e .
 

@@ -40,55 +40,89 @@ reported no leaks; the server was started with uvicorn and `/health/live` → 20
 `/health/ready` → 200 were verified with curl. The CI workflow has not yet run on a hosted
 runner because the Git remote is a placeholder.
 
-## Phase 2: Persistence, storage, jobs and containers (next)
+## Phase 2: Document ingestion and PDF processing (**complete**, 2026-10-22)
 
-Scope: PostgreSQL schema + Alembic migrations; Valkey + Celery worker with idempotent task
-pattern; document upload API with magic-byte type validation, size/page limits and
-quarantine; content-addressed local storage; Docker Compose for api/worker/postgres/valkey on
-an internal network; readiness checks for DB and broker; API authentication (see OD-6).
+Redefined by the project owner on 2026-10-22. The former Phase 2 (persistence, jobs and
+containers) becomes Phase 3.
+
+- [x] Upload endpoint `POST /api/v1/documents` with a streaming body-size limit.
+- [x] Approved formats PDF/JPEG/PNG/TIFF detected by magic bytes; extension cross-check (ADR-0010).
+- [x] Validation of size, page count, per-page pixel limits and integrity (full decode/parse).
+- [x] Safe handling of malformed, truncated, encrypted and unsupported files with stable
+      error codes. Quarantine and staging are cleaned up on every failure.
+- [x] Native-text detection per PDF page (ADR-0011); embedded text extracted with
+      segment bounding boxes.
+- [x] Scanned/image-content PDF pages rendered at `NGOCR_RENDER_DPI` (300 by default).
+- [x] Page numbering preserved (1-based, document order; TIFF frames in file order).
+- [x] Originals stored separately from derived artefacts; atomic commit (ADR-0013).
+- [x] Audit events for accepted and rejected documents (ADR-0014); no filenames or content in
+      logs or the audit trail.
+- [x] Dependency admission enforced mechanically (`--exclude-newer`); Pillow security override
+      (ADR-0007 amendment). FastAPI telemetry disabled explicitly (ADR-0008).
+
+Acceptance evidence (2026-10-22):
+
+| Criterion | Evidence |
+|---|---|
+| Native-text PDFs do not undergo unnecessary OCR | `test_native_text_page_is_not_rendered`, `test_native_pdf_end_to_end`: `needs_ocr=false`, no image rendered or stored |
+| Scanned PDFs are rendered correctly | `test_scanned_page_is_rendered_at_configured_dpi`: exact pixel size at DPI and pixel-level content check; manual check of a rendered page via the running server |
+| Multipage documents preserve page order | `test_multipage_mixed_document_preserves_order` (6 alternating native/scanned pages), `test_multipage_tiff_preserves_frame_order` |
+| Invalid files are rejected safely | Parametrised unit and API tests for empty, unknown, GIF/BMP/EXE/ZIP, extension mismatch, corrupt/truncated PDF and images, password-protected PDF, page/pixel/size limits, streamed bodies without Content-Length; each asserts that no files remain |
+| Unit and integration tests cover supported and rejected inputs | 129 tests passing (unit plus `tests/integration/test_documents_api.py`), 98% coverage; `make check` exit 0; `make secrets` no leaks |
+
+Known limitations, tracked as open decisions: parsing happens in-process (OD-12); ingestion is
+synchronous (ADR-0012); rotated-page coordinate reconciliation (OD-14). No real-world or
+Indic-language documents have been tested; fixtures are synthetic.
+
+## Phase 3: Persistence, jobs, containers and authentication (next)
+
+PostgreSQL schema + Alembic migrations (documents, pages, audit events); Valkey + Celery
+worker. Ingestion processing moves to idempotent tasks keyed on `(document_id, stage,
+input_hash)`, and parsing runs in the worker under resource limits (OD-12). Docker Compose
+for api/worker/postgres/valkey on an internal network; readiness checks for DB and broker;
+API authentication (OD-6).
 
 Acceptance: compose stack starts from scratch; migrations apply and roll back on an empty DB;
-upload → job record → no-op worker task → status visible via API; malicious/oversized/
-mismatched files rejected with stable error codes; integration tests against real Postgres
-and Valkey containers; container image scan (Trivy or Grype, pending approval) clean.
+upload returns 202 and the job completes with the same manifest as Phase 2; retries do not
+duplicate artefacts; integration tests against real Postgres and Valkey; container image
+scan clean (OD-5).
 
-## Phase 3: PDF handling and image preprocessing
+## Phase 4: Image quality assessment and preprocessing
 
-Native text-layer extraction vs page rendering decision per page (pypdfium2/pypdf, license
-check first); image quality metrics (blur, contrast, skew, resolution); deskew, denoise,
-binarisation, orientation. Acceptance: unit tests on synthetic fixtures for each transform;
-quality metrics validated against labelled samples.
+Quality metrics (blur, contrast, skew, resolution, noise); deskew, denoise, binarisation and
+orientation detection with OpenCV. Acceptance: unit tests on synthetic fixtures for each
+transform; metrics validated against labelled samples.
 
-## Phase 4: OCR engines and evaluation harness
+## Phase 5: OCR engines and evaluation harness
 
 `OcrEngine` protocol; Tesseract adapter (baseline); PaddleOCR adapter (CPU) with explicit
 local model paths and runtime downloads disabled; MODEL_INVENTORY entries with hashes and
 license review; evaluation harness (CER/WER) and first per-language measurements on a
-curated, licensed test set. **Stop point:** any model with unclear license is reported
+curated, licensed test set. **Stop point:** any model with an unclear license is reported
 before use.
 
-## Phase 5: Classification and layout
+## Phase 6: Classification and layout
 
 Document type classification, language/script detection, reading order, multi-column
 handling, table structure reconstruction, key-value detection.
 
-## Phase 6: Extraction, validation and export
+## Phase 7: Extraction, validation and export
 
 Field extraction (templates/rules per document type), validators (formats, checksums,
 cross-field rules), confidence aggregation and review triggers; JSON/CSV/Excel exports with
 evidence.
 
-## Phase 7: Human review UI
+## Phase 8: Human review UI
 
 React + TypeScript review application served locally (no CDN assets): queue, page viewer with
 bounding-box overlays, field correction, audit trail.
 
-## Phase 8: Handwriting recognition
+## Phase 9: Handwriting recognition
 
 Select, license-review and integrate a locally hosted handwriting model; measure per language.
 Languages without a viable model are documented as unsupported, not approximated.
 
-## Phase 9: Offline deployment and hardening
+## Phase 10: Offline deployment and hardening
 
 Offline bundle (wheels, images, models, SBOM, hashes); host-level egress blocking verified by
 test; backups/restore drill; operations runbook; throughput benchmarks against the

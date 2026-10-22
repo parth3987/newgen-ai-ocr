@@ -1,6 +1,6 @@
 # Offline Deployment
 
-Status: **planned (Phase 9)**. Only the Python dependency pinning described in §2 exists
+Status: **planned (Phase 10)**. Only the Python dependency pinning described in §2 exists
 today.
 
 ## 1. Model
@@ -21,13 +21,13 @@ and by an `internal: true` Docker network for the api/worker/db/broker services.
 - Bundle creation (planned): `pip download --require-hashes -r requirements.lock -d wheels/`,
   then on the target `pip install --no-index --find-links wheels/ --require-hashes -r requirements.lock`.
 
-## 3. Models [planned P4]
+## 3. Models [planned P5]
 
 All weights are downloaded during staging, recorded in MODEL_INVENTORY.md with SHA-256, and
 loaded from explicit local paths. Engine options that auto-download are disabled, and a
 startup check fails if a configured model file is missing or its hash differs.
 
-## 4. Verification [planned P9]
+## 4. Verification [planned P10]
 
 An automated test on the production host attempts outbound connections (DNS, HTTPS) and must
 observe them being blocked, then runs an end-to-end OCR job successfully.

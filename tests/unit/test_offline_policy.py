@@ -9,7 +9,11 @@ import ast
 from importlib import metadata
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
+
+from newgen_ocr.api.app import create_app
+from newgen_ocr.config import Settings
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "newgen_ocr"
 
@@ -71,3 +75,15 @@ def test_cdn_backed_docs_ui_is_disabled(client: TestClient) -> None:
     assert client.get("/docs").status_code == 404
     assert client.get("/redoc").status_code == 404
     assert client.get("/api/v1/openapi.json").status_code == 200
+
+
+def test_fastapi_telemetry_disabled_even_if_environment_requests_it(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    monkeypatch.setenv("FASTAPI_OTEL_AUTO_CONFIGURE", "true")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector.invalid:4318")
+    app = create_app(settings)
+    config = app._telemetry
+    assert config["auto_configure"] is False
+    assert (config["tracing"], config["metrics"], config["logs"]) == (False, False, False)
+    assert app._native_telemetry.enabled() is False

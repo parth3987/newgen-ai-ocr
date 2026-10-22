@@ -1,6 +1,6 @@
 # Accuracy Evaluation
 
-Status: **no measurements exist yet.** The harness arrives in Phase 4. This project makes
+Status: **no measurements exist yet.** The harness arrives in Phase 5. This project makes
 no accuracy claim (in particular no universal "99%") until it has measured one under the
 rules below.
 

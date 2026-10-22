@@ -38,7 +38,8 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # assert is the pytest idiom
+# S101: assert is the pytest idiom. S106: dummy passwords encrypt synthetic test PDFs.
+"tests/**" = ["S101", "S106"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
@@ -47,6 +48,11 @@ strict = true
 mypy_path = "src"
 packages = ["newgen_ocr"]
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# pypdfium2 ships no type information; its use is confined to newgen_ocr.pdf.
+module = ["pypdfium2", "pypdfium2.*"]
+ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]

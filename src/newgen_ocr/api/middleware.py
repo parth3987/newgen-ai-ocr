@@ -34,6 +34,9 @@ async def request_context_middleware(
     try:
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
+        # Responses may carry document data: never cache, never MIME-sniff.
+        response.headers.setdefault("Cache-Control", "no-store")
+        response.headers["X-Content-Type-Options"] = "nosniff"
         # Path only; query strings may carry sensitive values and are not logged.
         logger.info(
             "request completed",

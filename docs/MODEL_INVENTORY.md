@@ -1,6 +1,6 @@
 # Model Inventory
 
-Status: **no models are installed or approved yet** (Phase 4 / Phase 8).
+Status: **no models are installed or approved yet** (Phase 5 / Phase 9).
 
 Each entry must record its code, weights and training-data licenses **independently**. A
 model is usable only when all three are acceptable for the deployment and redistribution

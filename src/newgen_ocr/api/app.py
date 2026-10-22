@@ -10,13 +10,20 @@ import logging
 from fastapi import FastAPI
 
 from newgen_ocr import __version__
+from newgen_ocr.api.body_limit import BodySizeLimitMiddleware
+from newgen_ocr.api.errors import register_error_handlers
 from newgen_ocr.api.middleware import request_context_middleware
-from newgen_ocr.api.routes import health
+from newgen_ocr.api.routes import documents, health
+from newgen_ocr.audit import AuditLog
 from newgen_ocr.config import Settings, get_settings
-from newgen_ocr.errors import register_error_handlers
+from newgen_ocr.ingestion.service import IngestionService
 from newgen_ocr.logging_config import configure_logging
+from newgen_ocr.storage.local import DocumentStore
 
 logger = logging.getLogger(__name__)
+
+# Allowance for multipart boundaries and part headers on top of the file itself.
+MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -31,12 +38,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url=None,
         redoc_url=None,
         openapi_url="/api/v1/openapi.json",
+        # FastAPI's built-in OpenTelemetry instrumentation and environment-driven
+        # OTLP export are switched off explicitly (ADR-0008).
+        telemetry={"tracing": False, "metrics": False, "logs": False, "auto_configure": False},
     )
+    store = DocumentStore(settings.data_dir)
     app.state.settings = settings
+    app.state.store = store
+    app.state.ingestion = IngestionService(settings, store, AuditLog(settings.data_dir))
 
+    # Starlette runs the last-added middleware first: request context wraps the body limit.
+    app.add_middleware(
+        BodySizeLimitMiddleware, max_bytes=settings.max_upload_bytes + MULTIPART_OVERHEAD_BYTES
+    )
     app.middleware("http")(request_context_middleware)
     register_error_handlers(app)
     app.include_router(health.router)
+    app.include_router(documents.router)
 
     logger.info(
         "application created",

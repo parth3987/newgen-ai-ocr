@@ -22,12 +22,12 @@ def test_method_not_allowed(client: TestClient) -> None:
 
 def test_app_error_maps_to_code_and_status(app: FastAPI, client: TestClient) -> None:
     async def boom() -> None:
-        raise AppError(ErrorCode.VALIDATION_ERROR, "bad thing", status_code=409)
+        raise AppError(ErrorCode.FILE_TOO_LARGE, "bad thing")
 
     app.add_api_route("/test/app-error", boom)
     response = client.get("/test/app-error")
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "FILE_TOO_LARGE"
     assert response.json()["error"]["message"] == "bad thing"
 
 

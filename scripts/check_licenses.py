@@ -27,7 +27,25 @@ ALLOWED = {
     "Python Software Foundation License",
     "ISC",
     "ISC License (ISCL)",
+    "MIT-CMU",
 }
+
+# Packages whose declared license is not a single allowlisted identifier, approved after
+# manual review of the exact version. Upgrading such a package forces a re-review.
+REVIEWED: dict[tuple[str, str], str] = {
+    # BSD-3-Clause/Apache-2.0 bindings plus bundled PDFium binary; dependency licenses
+    # (FreeType FTL, IJG, ICU/Unicode, zlib, MIT, BSD, Apache) reviewed 2026-10-22.
+    # See docs/THIRD_PARTY_NOTICES.md.
+    ("pypdfium2", "5.14.0"): "BSD-3-Clause, Apache-2.0, dependency licenses",
+}
+
+
+def approved(row: dict[str, str]) -> bool:
+    if row["License"] in ALLOWED:
+        return True
+    key = (row["Name"].lower().replace("_", "-"), row["Version"])
+    return REVIEWED.get(key) == row["License"]
+
 
 _PIN = re.compile(r"^([A-Za-z0-9_.-]+)==", re.MULTILINE)
 
@@ -57,10 +75,10 @@ def main() -> int:
     rows = json.loads(result.stdout)
     found = {row["Name"].lower().replace("_", "-") for row in rows}
     missing = sorted({p.lower().replace("_", "-") for p in packages} - found)
-    rejected = [row for row in rows if row["License"] not in ALLOWED]
+    rejected = [row for row in rows if not approved(row)]
 
     for row in rows:
-        status = "OK " if row["License"] in ALLOWED else "BAD"
+        status = "OK " if approved(row) else "BAD"
         sys.stdout.write(f"{status} {row['Name']}=={row['Version']}  {row['License']}\n")
     if missing:
         sys.stdout.write(f"NOT INSTALLED (cannot verify): {', '.join(missing)}\n")
