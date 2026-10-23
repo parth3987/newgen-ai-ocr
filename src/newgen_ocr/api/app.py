@@ -13,9 +13,12 @@ from newgen_ocr import __version__
 from newgen_ocr.api.body_limit import BodySizeLimitMiddleware
 from newgen_ocr.api.errors import register_error_handlers
 from newgen_ocr.api.middleware import request_context_middleware
-from newgen_ocr.api.routes import documents, health, layout, ocr, preprocessing
+from newgen_ocr.api.routes import documents, extraction, health, layout, ocr, preprocessing
 from newgen_ocr.audit import AuditLog
 from newgen_ocr.config import Settings, get_settings
+from newgen_ocr.extraction.extract import Options
+from newgen_ocr.extraction.schema import SchemaRegistry
+from newgen_ocr.extraction.service import ExtractionService
 from newgen_ocr.imaging.runtime import check_opencv_build, configure_opencv
 from newgen_ocr.ingestion.service import IngestionService
 from newgen_ocr.layout.detector import PaddleLayoutModels
@@ -128,6 +131,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ),
     )
 
+    app.state.audit = audit
+    app.state.extraction = ExtractionService(
+        store,
+        audit,
+        SchemaRegistry(settings.extraction_schema_dir),
+        Options(
+            day_first=settings.extraction_day_first,
+            mask_aadhaar=settings.extraction_mask_aadhaar,
+        ),
+        min_evidence_confidence=settings.extraction_min_evidence_confidence,
+    )
+
     # Starlette runs the last-added middleware first: request context wraps the body limit.
     app.add_middleware(
         BodySizeLimitMiddleware, max_bytes=settings.max_upload_bytes + MULTIPART_OVERHEAD_BYTES
@@ -139,6 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(preprocessing.router)
     app.include_router(ocr.router)
     app.include_router(layout.router)
+    app.include_router(extraction.router)
 
     logger.info(
         "application created",

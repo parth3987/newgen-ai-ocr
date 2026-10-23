@@ -64,7 +64,7 @@ Containers will also set `OTEL_SDK_DISABLED=true`.
 
 ### ADR-0009: Separate liveness and readiness probes (2026-10-22)
 `/health/live` performs no I/O (it is for restart decisions). `/health/ready` checks the
-dependencies needed to accept work (currently `data_dir`; DB and broker are added in Phase 7)
+dependencies needed to accept work (currently `data_dir`; DB and broker are added in Phase 8)
 and returns 503 with per-check results when any check fails.
 
 ### ADR-0010: Approved formats detected by signature (2026-10-22)
@@ -88,13 +88,13 @@ unnecessary OCR on image-heavy digital pages for never silently losing scanned c
 Thresholds are named constants and will be tuned against the evaluation set (Phase 5).
 
 ### ADR-0012: Synchronous ingestion with a global PDFium lock (temporary) (2026-10-22)
-Until the job queue exists (Phase 7), `POST /api/v1/documents` ingests synchronously in
+Until the job queue exists (Phase 8), `POST /api/v1/documents` ingests synchronously in
 FastAPI's thread pool. PDFium is not thread-safe, so all PDFium use is serialised by
 `PDFIUM_LOCK`. Throughput is therefore limited to one PDF at a time per process, which is
 acceptable for development and must not be used for production volumes.
 
 ### ADR-0013: Filesystem document store and manifests as the metadata record (2026-10-22)
-Until PostgreSQL arrives (Phase 7), `derived/<id>/manifest.json` is the system of record for
+Until PostgreSQL arrives (Phase 8), `derived/<id>/manifest.json` is the system of record for
 document metadata. Originals (`originals/`, mode 0440) are stored separately from derived
 artefacts (`derived/`). Derived output is built in `staging/` and renamed into place
 atomically, with the manifest included. Client filenames never touch the filesystem. Document
@@ -105,7 +105,7 @@ recorded so they can be deduplicated later).
 `audit/audit.jsonl` records `document.accepted` and `document.rejected` with request id,
 actor (`anonymous` until auth exists), sha256, size, format, page counts and error code,
 never filenames or content. Each line is appended with `O_APPEND` and fsync. It moves to a
-database table in Phase 7, with the file kept as a tamper-evident export.
+database table in Phase 8, with the file kept as a tamper-evident export.
 
 ### ADR-0015: OpenCV supplied as a minimal source build in production (2026-10-22)
 Decided by the project owner. The PyPI `opencv-python-headless` 4.14.0.94 wheel loads 16
@@ -119,7 +119,7 @@ only the modules we need (core, imgproc, photo), without FFmpeg/videoio/OpenSSL.
 published as an internal hash-pinned wheel that also satisfies PaddleOCR's `cv2`
 requirement. Development and CI use the PyPI wheel. **Enforcement:** `create_app` refuses
 to start with `NGOCR_ENVIRONMENT=production` if `cv2.getBuildInformation()` reports
-`FFMPEG: YES` (`newgen_ocr/imaging/runtime.py`, tested). The build itself is a Phase 7/10 task.
+`FFMPEG: YES` (`newgen_ocr/imaging/runtime.py`, tested). The build itself is a Phase 8/10 task.
 
 ### ADR-0016: Orientation and skew by projection profiles; 180° resolved at OCR (2026-10-22)
 Skew is the angle that maximises the sharpness of the ink projection profile (coarse 0.5°
@@ -321,6 +321,28 @@ well. All Paddle model creation and inference now runs on a single dedicated thr
 (`paddle_runtime.run_on_paddle_thread`); calls were already serialised, so throughput is
 unchanged. Regression test: `test_paddle_calls_from_many_threads`.
 
+### ADR-0026: Structured extraction by rules, templates and checks; no LLM (2026-10-23)
+Extraction runs on a stored layout run and needs no model: rule- and template-based
+classification, configurable JSON field schemas, label, section, table and format
+(regex/checksum) candidates, normalisers, Pydantic validation and consistency checks
+(EXTRACTION.md). The owner chose the first document types on 2026-10-23: GST tax invoice,
+receipt / cash memo, bank statement, PAN card, Aadhaar card. Principles:
+1. **Missing stays missing.** No value is inferred from position or likelihood. A value
+   whose field cannot be decided (e.g. a GSTIN outside any seller/buyer section) is
+   `ambiguous`; disagreeing candidates are a `conflict`; both keep `value: null`.
+2. **Evidence on every value:** page, source, OCR line indices, box, confidence.
+3. **Checks never assume zero** for a missing input, except declared optional terms
+   (round-off; the message says when they were counted as 0).
+4. **Personal data:** Aadhaar masked to the last 4 digits by default in results and exports
+   (UIDAI guidance); identity fields marked `sensitive`.
+5. **Exports** (JSON, CSV, XLSX) neutralise spreadsheet formula injection.
+Excel export uses **openpyxl 3.1.5** (+ et-xmlfile 2.0.0), both MIT, pure Python, admitted
+under ADR-0007 (owner-approved 2026-10-23; age, hash, audit and licence checks pass). Only
+those two packages were added (the lock was regenerated without `--upgrade`).
+**Measured on a synthetic set** (ACCURACY_EVALUATION.md): 0 invented and 0 wrong values in
+248 field judgements; on a held-out invoice design, 6 of 12 values were found before
+generic fixes and 9 of 12 after, again 0 wrong and 0 invented.
+
 ## Open decisions (defaults in force until decided)
 
 | ID | Question | Default assumption |
@@ -329,14 +351,14 @@ unchanged. Regression test: `test_paddle_calls_from_many_threads`.
 | OD-2 | Queue broker | Valkey (BSD-3-Clause) |
 | OD-3 | Handwriting model | None selected. Candidates are license-reviewed in the handwriting phase; **stop and report** if none is clearly licensed |
 | OD-4 | PaddleOCR coverage for te/hi/ta/kn/mr on CPU | **Measured on the synthetic corpus (Phase 4)**: see ACCURACY_EVALUATION.md. Real-scan accuracy remains unmeasured |
-| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 7) |
+| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 8) |
 | OD-6 | API authentication | API keys (hashed in DB) for system integrations, plus session login for the review UI; OIDC optional later |
 | OD-7 | Test-client transport | Starlette warns that `httpx` is deprecated in favour of `httpx2`. Migration is held for approval (new dependency) |
 | OD-8 | GitHub Actions pinning | Pinned to major tags today; pin to commit SHAs before the first protected-branch merge |
 | OD-9 | Untracked empty `requirements.txt` | Left untouched; superseded by `requirements.in`/`.lock`. Propose deleting it |
 | OD-10 | Git remote is a placeholder (`YOUR_USERNAME`) | No pushes or commits until the owner authorizes them and sets the remote |
 | OD-11 | Dev host is Ubuntu 26.04, target is 24.04 | CI runs on `ubuntu-24.04`; containers will use a 24.04 base (OD-1) |
-| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 7 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
+| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 8 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
 | OD-13 | Retention of rejected uploads | Deleted immediately; only the audit event (sha256, size, code) remains. Alternative: a quarantine hold for security review |
 | OD-14 | Rotated PDF pages | `rotation` is recorded. Text bounding boxes are in unrotated page space with a top-left origin, while rendered images follow PDFium's display orientation. Layout (Phase 6) works in OCR-image coordinates, so it is unaffected; reconcile together with OD-25 |
 | OD-15 | Upload spooling | Starlette spools multipart files over 1 MiB to `TMPDIR` before the handler runs (size-capped by the body limit). Default: set `TMPDIR` to a directory on the protected data volume in deployment |
@@ -352,3 +374,9 @@ unchanged. Regression test: `test_paddle_calls_from_many_threads`.
 | OD-25 | Layout of native-text PDF pages | Not OCRed, so they have no page image or OCR lines: layout returns them `skipped: native_text`. Proposal: render them for layout and use the embedded text segments as lines (needs OD-14) |
 | OD-26 | Tables without any rules | Not detected as tables by PP-DocLayout on the test set (2 of 2 missed); their text is returned as text regions in row order and the page is routed to review. Candidate: a whitespace-alignment detector, or a real-document test of `PP-DocLayout-L` |
 | OD-27 | Real-document layout and table test set | Synthetic only (ACCURACY_EVALUATION.md). Default: build one from consented real documents (invoices, statements, forms) with cell-level ground truth before relying on table output in production; PubTabNet/FinTabNet (CDLA-Permissive) are options for printed English tables |
+| OD-28 | Real-document extraction set | Synthetic only (ACCURACY_EVALUATION.md). Default: collect consented real invoices, receipts, statements and ID scans (with masking) and measure field precision/recall per type before production use |
+| OD-29 | Parties without section headings | Letterhead seller details (name, address) with no "Seller"/"From" heading are not extracted (held-out invoice). Options: per-vendor templates, or a declared "letterhead = seller" rule per schema |
+| OD-30 | Aadhaar numbers in OCR/layout artefacts | Extraction masks them; OCR and layout runs keep the page text verbatim. Options: redact Aadhaar patterns in stored OCR text, or restrict and expire derived artefacts (with OD-16) |
+| OD-31 | Unruled bank statements | Transaction tables without rules are not detected by layout (OD-26), so their transactions are not extracted (the statement is routed to review). Candidate: line-based transaction parsing with column positions from the header line |
+| OD-32 | Amounts in words | "Rupees Eleven Thousand Eight Hundred Only" is not parsed or cross-checked against the total. Candidate: an Indian-numbering words parser as an extra check |
+

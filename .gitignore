@@ -77,4 +77,5 @@ models/
 evaluation/corpus/generated/
 # Generated layout test set (rebuild with scripts/evaluate_layout.py --rebuild)
 evaluation/layout/generated/
+evaluation/extraction/generated/
 evaluation/fonts/

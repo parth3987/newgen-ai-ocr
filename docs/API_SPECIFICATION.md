@@ -12,7 +12,7 @@ disabled (DECISIONS.md ADR-0005).
 - **Caching:** every response carries `Cache-Control: no-store` and
   `X-Content-Type-Options: nosniff`.
 - **Authentication:** not yet implemented (OD-6). Do not expose the service beyond a trusted
-  network until Phase 7 adds it.
+  network until Phase 8 adds it.
 - **Request size:** bodies larger than `NGOCR_MAX_UPLOAD_BYTES` + 64 KiB are refused with
   `413 FILE_TOO_LARGE`, either immediately (from Content-Length) or as soon as the streamed
   body exceeds the limit.
@@ -59,6 +59,9 @@ Messages never contain document content or submitted values.
 | `LAYOUT_UNAVAILABLE` | 503 | Layout/table models are not present (fetch them at staging) |
 | `LAYOUT_FAILED` | 500 | A layout model failed on a page (recorded per page in a layout run) |
 | `LAYOUT_RUN_NOT_FOUND` | 404 | No layout run for that OCR run name |
+| `UNKNOWN_DOCUMENT_TYPE` | 422 | No extraction schema with that id |
+| `EXTRACTION_NOT_FOUND` | 404 | No extraction result for that layout run |
+| `UNSUPPORTED_EXPORT` | 422 | The requested export part does not exist (e.g. unknown table) |
 
 Pages that cannot be recognised reliably are **not** errors. They come back in the run with
 `status: "unsupported"` and/or `review.needs_review: true` (see below and LANGUAGE_SUPPORT.md).
@@ -405,3 +408,78 @@ and review flags drawn, for inspecting layout errors. Not stored. `404 PAGE_NOT_
 | `unsupported[].kind` | `formula`, `chart`, `seal`, `figure_text`, `table_structure` |
 | `review.reasons` | `table_structure_mismatch`, `table_structure_invalid`, `table_low_confidence`, `table_text_unassigned`, `table_cell_text_ambiguous`, `table_cell_unread`, `unsupported_structure`, `overlapping_regions`, `unclassified_text` |
 | `text` | Page text in reading order: regions separated by a blank line, table rows on lines with cells tab-separated |
+
+## Structured extraction (Phase 7)
+
+Rules and templates only, with no LLM (ADR-0026). Concepts, statuses and normalisation:
+EXTRACTION.md. JSON Schemas: `docs/schemas/extraction_result.schema.json` (result),
+`docs/schemas/document_schema.schema.json` (document-type schema format) and
+`docs/schemas/records/<type>.schema.json` (each type's validated record). These are generated
+from the code and checked by the tests.
+
+### `GET /api/v1/extraction/schemas`
+`200` → `[{"id": "gst_invoice", "version": "1.0", "title": "GST tax invoice", "fields": [...],
+"tables": ["line_items"]}, …]`.
+
+### `GET /api/v1/extraction/schemas/{schema_id}`
+`200` → the full document-type schema (labels, sections, tables, checks, templates).
+`422 UNKNOWN_DOCUMENT_TYPE`.
+
+### `POST /api/v1/documents/{document_id}/extraction`
+Body (optional): `{"layout_run": "auto", "document_type": "auto"}`. Use `document_type` with
+a schema id to skip classification. `201` → `ExtractionResult`, stored and replacing any
+earlier extraction of that layout run. Errors: `404 LAYOUT_RUN_NOT_FOUND`,
+`404 OCR_RUN_NOT_FOUND`, `422 UNKNOWN_DOCUMENT_TYPE`.
+
+### `GET /api/v1/documents/{document_id}/extraction`
+`200` → names of stored extraction results (one per layout run).
+
+### `GET /api/v1/documents/{document_id}/extraction/{layout_run}`
+`200` → `ExtractionResult`. `404 EXTRACTION_NOT_FOUND`.
+
+### `GET /api/v1/documents/{document_id}/extraction/{layout_run}/export`
+Query: `format=json|csv|xlsx` (default `json`); with `format=csv`, `table=<name>` gives that
+table's records instead of the fields. `200` with `Content-Disposition: attachment`.
+`422 UNSUPPORTED_EXPORT` (no such table). Audited as `extraction.exported`.
+
+### `ExtractionResult` (abridged)
+
+```json
+{"document_id": "…", "layout_run": "auto", "ocr_run": "auto",
+ "schema_id": "gst_invoice", "schema_version": "1.0", "status": "complete",
+ "classification": {"status": "classified", "document_type": "gst_invoice", "template": null,
+                    "score": 14.0, "scores": {"gst_invoice": 14.0, "receipt": 0.0, …},
+                    "evidence": {"gst_invoice": ["keyword:tax invoice", …]}},
+ "fields": [{"name": "grand_total", "type": "amount", "required": true,
+             "status": "extracted", "value": "11800.00", "raw": "11,800.00",
+             "method": "label", "confidence": 0.99,
+             "evidence": [{"page_number": 1, "source": "ocr_line",
+                           "text": "Grand Total: 11,800.00", "bbox": {…}, "units": "px",
+                           "line_indices": [27], "region_id": 9, "confidence": 0.99}],
+             "candidates": [{"value": "11800.00", "raw": "11,800.00", "method": "label",
+                             "evidence": [...], "alternatives": [], "errors": []}],
+             "notes": [], "errors": [], "sensitive": false},
+            {"name": "due_date", "status": "missing", "value": null, …}],
+ "tables": [{"name": "line_items", "status": "extracted", "columns": [...],
+             "column_types": {…}, "records": [{"index": 0, "page_number": 1, "table_id": 0,
+             "row": 1, "values": {"amount": {"status": "extracted", "value": "5000.00",
+             "raw": "5000.00", "evidence": {…}}, …}}], "summary_rows": [], "sources": [...],
+             "issues": []}],
+ "record": {"invoice_number": "INV-2024-0042", "due_date": null, …},
+ "validation": {"valid": true, "issues": []},
+ "checks": [{"id": "grand_total", "kind": "field_sum", "status": "passed",
+             "message": "grand_total: expected 11800.00, found 11800.00", "fields": [...],
+             "expected": "11800.00", "actual": "11800.00", "difference": "0.00", "rows": []}],
+ "review": {"needs_review": false, "reasons": [], "details": []},
+ "source_notes": [], "created_at": "…", "pipeline_version": "0.7.0", "total_ms": 21.3}
+```
+
+| Field | Values |
+|---|---|
+| `status` | `complete` (valid, no review), `needs_review`, `unclassified` (no document type: no fields) |
+| `classification.status` | `classified`, `template`, `requested`, `ambiguous`, `unknown` |
+| `fields[].status` | `extracted`, `missing`, `ambiguous`, `conflict`, `invalid`; `value` is null unless `extracted` |
+| `fields[].method` | `template`, `label`, `section`, `table_row`, `pattern` (`unattributed` candidates are never chosen) |
+| `checks[].status` | `passed`, `failed`, `not_applicable` (inputs missing: nothing assumed) |
+| `validation.issues[].code` | `missing_required`, `invalid_value`, `field_ambiguous`, `field_conflict`, `field_invalid`, `cell_ambiguous`, `cell_invalid` |
+| `review.reasons` | `document_type_unknown`, `document_type_ambiguous`, `required_field_missing`, `field_ambiguous`, `field_conflict`, `field_invalid`, `table_not_found`, `table_value_invalid`, `check_failed`, `low_confidence_evidence`, `source_needs_review` |

@@ -1,0 +1,42 @@
+{
+  "id": "receipt",
+  "version": "1.0",
+  "title": "Receipt / cash memo",
+  "description": "Retail receipt or cash memo: merchant, date, items and total paid.",
+  "classification": {
+    "keywords": [
+      {"text": "receipt", "weight": 4},
+      {"text": "cash memo", "weight": 4},
+      {"text": "thank you", "weight": 1},
+      {"text": "payment mode", "weight": 1.5},
+      {"text": "paid", "weight": 1},
+      {"text": "रसीद", "weight": 4}
+    ],
+    "min_score": 4
+  },
+  "fields": [
+    {"name": "merchant_name", "type": "name", "labels": ["merchant", "store", "shop"]},
+    {"name": "receipt_number", "type": "identifier",
+     "labels": ["receipt no", "receipt number", "bill no", "memo no", "cash memo no"],
+     "pattern": "[A-Za-z0-9][A-Za-z0-9/\\-]{1,30}"},
+    {"name": "receipt_date", "type": "date", "required": true, "labels": ["date", "दिनांक", "తేదీ", "தேதி", "ದಿನಾಂಕ"]},
+    {"name": "merchant_gstin", "type": "gstin", "scan": true, "labels": ["gstin", "gst no"]},
+    {"name": "payment_mode", "type": "text", "labels": ["payment mode", "paid by", "mode of payment"]},
+    {"name": "total", "type": "amount", "required": true,
+     "labels": ["total", "total amount", "amount paid", "net amount", "grand total", "कुल", "एकूण", "మొత్తం", "மொத்தம்", "ಒಟ್ಟು"]}
+  ],
+  "tables": [
+    {"name": "items",
+     "columns": [
+       {"name": "description", "type": "text", "required": true, "headers": ["item", "description", "particulars", "product"]},
+       {"name": "quantity", "type": "number", "headers": ["qty", "quantity"]},
+       {"name": "rate", "type": "amount", "headers": ["rate", "price"]},
+       {"name": "amount", "type": "amount", "required": true, "headers": ["amount", "total", "value"]}
+     ]}
+  ],
+  "checks": [
+    {"id": "line_amount", "kind": "row_product", "table": "items", "target": "amount", "factors": ["quantity", "rate"]},
+    {"id": "items_total", "kind": "column_sum", "table": "items", "column": "amount", "target": "total"},
+    {"id": "date_not_future", "kind": "not_future", "fields": ["receipt_date"]}
+  ]
+}

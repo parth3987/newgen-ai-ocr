@@ -4,6 +4,27 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 7: Structured data extraction without an LLM (2026-10-23)
+- `newgen_ocr/extraction/`: rule and template classification; configurable JSON field
+  schemas (built-in: GST invoice, receipt, bank statement, PAN card, Aadhaar card; custom via
+  `NGOCR_EXTRACTION_SCHEMA_DIR`); candidates from labels, section blocks, label table rows,
+  identifier formats and template regions; explicit statuses (`extracted`, `missing`,
+  `ambiguous`, `conflict`, `invalid`). Nothing is invented.
+- Normalisation of dates (day-first policy), amounts (Indian grouping, exact decimals),
+  GSTIN (mod-36), PAN, Aadhaar (Verhoeff; masked by default), IFSC, PIN, phone, addresses,
+  and digits in Indian scripts.
+- Table-to-record conversion with header mapping, summary rows and per-cell evidence;
+  Pydantic validation with explicit issues; 11 kinds of consistency check (arithmetic,
+  GST tax type, balances, running balance, dates).
+- Evidence on every value (page, source, OCR line indices, box, confidence); native PDF
+  text pages supported.
+- `POST/GET …/extraction`, `…/export?format=json|csv|xlsx`, `GET /api/v1/extraction/schemas`;
+  CSV/XLSX formula-injection protection; exports audited.
+- New dependency: openpyxl 3.1.5 (+ et-xmlfile), MIT.
+- Generated JSON Schemas (`docs/schemas/`) and type reference, checked by the tests;
+  synthetic extraction set and `scripts/evaluate_extraction.py`.
+- Implementation plan renumbered: persistence and jobs move to Phase 8.
+
 ### Phase 6: Layout, tables and document structure (2026-10-23)
 - Layout stage over a stored OCR run (`POST/GET /api/v1/documents/{id}/layout`,
   `GET /api/v1/layout/status`): typed regions (title, text, header, footer, page number,

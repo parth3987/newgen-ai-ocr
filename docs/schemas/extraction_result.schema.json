@@ -1,0 +1,930 @@
+{
+  "$defs": {
+    "BoundingBox": {
+      "description": "Axis-aligned box, origin at the page's top-left corner.",
+      "properties": {
+        "x0": {
+          "title": "X0",
+          "type": "number"
+        },
+        "x1": {
+          "title": "X1",
+          "type": "number"
+        },
+        "y0": {
+          "title": "Y0",
+          "type": "number"
+        },
+        "y1": {
+          "title": "Y1",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
+    "Candidate": {
+      "properties": {
+        "alternatives": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Alternatives",
+          "type": "array"
+        },
+        "errors": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "method": {
+          "$ref": "#/$defs/CandidateMethod"
+        },
+        "raw": {
+          "title": "Raw",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "raw",
+        "method",
+        "evidence"
+      ],
+      "title": "Candidate",
+      "type": "object"
+    },
+    "CandidateMethod": {
+      "enum": [
+        "template",
+        "label",
+        "table_row",
+        "section",
+        "pattern",
+        "unattributed"
+      ],
+      "title": "CandidateMethod",
+      "type": "string"
+    },
+    "CellValue": {
+      "properties": {
+        "errors": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "notes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "raw": {
+          "default": "",
+          "title": "Raw",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FieldStatus"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "CellValue",
+      "type": "object"
+    },
+    "CheckResult": {
+      "properties": {
+        "actual": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual"
+        },
+        "difference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Difference"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "fields": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "rows": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/CheckStatus"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "status",
+        "message"
+      ],
+      "title": "CheckResult",
+      "type": "object"
+    },
+    "CheckStatus": {
+      "enum": [
+        "passed",
+        "failed",
+        "not_applicable"
+      ],
+      "title": "CheckStatus",
+      "type": "string"
+    },
+    "Classification": {
+      "properties": {
+        "document_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Document Type"
+        },
+        "evidence": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "default": {},
+          "title": "Evidence",
+          "type": "object"
+        },
+        "score": {
+          "default": 0.0,
+          "title": "Score",
+          "type": "number"
+        },
+        "scores": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "default": {},
+          "title": "Scores",
+          "type": "object"
+        },
+        "status": {
+          "$ref": "#/$defs/ClassificationStatus"
+        },
+        "template": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Template"
+        }
+      },
+      "required": [
+        "status",
+        "document_type"
+      ],
+      "title": "Classification",
+      "type": "object"
+    },
+    "ClassificationStatus": {
+      "enum": [
+        "classified",
+        "template",
+        "requested",
+        "ambiguous",
+        "unknown"
+      ],
+      "title": "ClassificationStatus",
+      "type": "string"
+    },
+    "Evidence": {
+      "properties": {
+        "bbox": {
+          "$ref": "#/$defs/BoundingBox"
+        },
+        "col": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Col"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "line_indices": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Line Indices",
+          "type": "array"
+        },
+        "page_number": {
+          "title": "Page Number",
+          "type": "integer"
+        },
+        "region_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Region Id"
+        },
+        "row": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row"
+        },
+        "source": {
+          "$ref": "#/$defs/EvidenceSource"
+        },
+        "table_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Table Id"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "units": {
+          "default": "px",
+          "title": "Units",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_number",
+        "source",
+        "text",
+        "bbox"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "EvidenceSource": {
+      "enum": [
+        "ocr_line",
+        "pdf_text",
+        "table_cell",
+        "template_region"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
+    },
+    "ExtractionReview": {
+      "properties": {
+        "details": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Details",
+          "type": "array"
+        },
+        "needs_review": {
+          "title": "Needs Review",
+          "type": "boolean"
+        },
+        "reasons": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ExtractionReviewReason"
+          },
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "needs_review"
+      ],
+      "title": "ExtractionReview",
+      "type": "object"
+    },
+    "ExtractionReviewReason": {
+      "enum": [
+        "document_type_unknown",
+        "document_type_ambiguous",
+        "required_field_missing",
+        "field_ambiguous",
+        "field_conflict",
+        "field_invalid",
+        "table_not_found",
+        "table_value_invalid",
+        "check_failed",
+        "low_confidence_evidence",
+        "source_needs_review"
+      ],
+      "title": "ExtractionReviewReason",
+      "type": "string"
+    },
+    "ExtractionStatus": {
+      "enum": [
+        "complete",
+        "needs_review",
+        "unclassified"
+      ],
+      "title": "ExtractionStatus",
+      "type": "string"
+    },
+    "FieldResult": {
+      "properties": {
+        "candidates": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "errors": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CandidateMethod"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "notes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "raw": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "sensitive": {
+          "default": false,
+          "title": "Sensitive",
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/FieldStatus"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "required",
+        "status"
+      ],
+      "title": "FieldResult",
+      "type": "object"
+    },
+    "FieldStatus": {
+      "enum": [
+        "extracted",
+        "missing",
+        "ambiguous",
+        "conflict",
+        "invalid"
+      ],
+      "title": "FieldStatus",
+      "type": "string"
+    },
+    "TableRecord": {
+      "properties": {
+        "errors": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "page_number": {
+          "title": "Page Number",
+          "type": "integer"
+        },
+        "row": {
+          "title": "Row",
+          "type": "integer"
+        },
+        "table_id": {
+          "title": "Table Id",
+          "type": "integer"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CellValue"
+          },
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "index",
+        "page_number",
+        "table_id",
+        "row",
+        "values"
+      ],
+      "title": "TableRecord",
+      "type": "object"
+    },
+    "TableResult": {
+      "properties": {
+        "column_types": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "title": "Column Types",
+          "type": "object"
+        },
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "issues": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "records": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TableRecord"
+          },
+          "title": "Records",
+          "type": "array"
+        },
+        "sources": {
+          "default": [],
+          "items": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "summary_rows": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TableRecord"
+          },
+          "title": "Summary Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "status",
+        "columns"
+      ],
+      "title": "TableResult",
+      "type": "object"
+    },
+    "ValidationIssue": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "location": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "title": "Location",
+          "type": "array"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "location",
+        "message"
+      ],
+      "title": "ValidationIssue",
+      "type": "object"
+    },
+    "ValidationReport": {
+      "properties": {
+        "issues": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "valid": {
+          "title": "Valid",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "valid"
+      ],
+      "title": "ValidationReport",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "checks": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CheckResult"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "classification": {
+      "$ref": "#/$defs/Classification"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "document_id": {
+      "title": "Document Id",
+      "type": "string"
+    },
+    "fields": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/FieldResult"
+      },
+      "title": "Fields",
+      "type": "array"
+    },
+    "layout_run": {
+      "title": "Layout Run",
+      "type": "string"
+    },
+    "ocr_run": {
+      "title": "Ocr Run",
+      "type": "string"
+    },
+    "pipeline_version": {
+      "title": "Pipeline Version",
+      "type": "string"
+    },
+    "record": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "default": {},
+      "title": "Record",
+      "type": "object"
+    },
+    "review": {
+      "$ref": "#/$defs/ExtractionReview"
+    },
+    "schema_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Schema Id"
+    },
+    "schema_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Schema Version"
+    },
+    "source_notes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Notes",
+      "type": "array"
+    },
+    "status": {
+      "$ref": "#/$defs/ExtractionStatus"
+    },
+    "tables": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/TableResult"
+      },
+      "title": "Tables",
+      "type": "array"
+    },
+    "total_ms": {
+      "title": "Total Ms",
+      "type": "number"
+    },
+    "validation": {
+      "$ref": "#/$defs/ValidationReport"
+    }
+  },
+  "required": [
+    "document_id",
+    "layout_run",
+    "ocr_run",
+    "schema_id",
+    "schema_version",
+    "status",
+    "classification",
+    "validation",
+    "review",
+    "created_at",
+    "pipeline_version",
+    "total_ms"
+  ],
+  "title": "ExtractionResult",
+  "type": "object"
+}

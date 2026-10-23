@@ -1,0 +1,31 @@
+{
+  "id": "aadhaar_card",
+  "version": "1.0",
+  "title": "Aadhaar card",
+  "description": "Aadhaar letter or card (UIDAI). The Aadhaar number is masked to its last 4 digits by default.",
+  "classification": {
+    "keywords": [
+      {"text": "aadhaar", "weight": 4},
+      {"text": "unique identification authority", "weight": 4},
+      {"text": "government of india", "weight": 1.5},
+      {"text": "आधार", "weight": 4},
+      {"text": "भारत सरकार", "weight": 1.5},
+      {"text": "vid", "weight": 1}
+    ],
+    "patterns": [{"regex": "(?<!\\d)[2-9]\\d{3} \\d{4} \\d{4}(?!\\d)", "weight": 2}],
+    "min_score": 5
+  },
+  "fields": [
+    {"name": "aadhaar_number", "type": "aadhaar", "required": true, "scan": true, "sensitive": true,
+     "labels": ["aadhaar no", "aadhaar number", "आधार संख्या"]},
+    {"name": "name", "type": "name", "required": true, "labels": ["name", "नाम"]},
+    {"name": "date_of_birth", "type": "date", "sensitive": true,
+     "labels": ["date of birth", "dob", "जन्म तिथि", "जन्म तारीख"]},
+    {"name": "gender", "type": "gender", "labels": ["gender", "sex", "लिंग"]},
+    {"name": "address", "type": "address", "sensitive": true, "labels": ["address", "पता"], "max_lines": 4},
+    {"name": "pincode", "type": "pincode", "sensitive": true, "labels": ["pin code", "pincode", "pin"]}
+  ],
+  "checks": [
+    {"id": "dob_not_future", "kind": "not_future", "fields": ["date_of_birth"]}
+  ]
+}

@@ -34,7 +34,7 @@ handwritten) and engine/model version. Aggregates are never reported alone.
 ## Acceptance criteria
 
 Thresholds are set per critical field and per language/document type with the business owner
-before Phase 8 (extraction) sign-off and recorded here. Fields that miss their threshold must route to
+before production use of extraction and recorded here. Fields that miss their threshold must route to
 human review.
 
 ## Baseline corpus (Phase 4): synthetic, printed
@@ -243,3 +243,59 @@ however, so 29 of 30 pages carry `unclassified_text` against 7 of 30 with the de
 found 2 of 3 page-furniture blocks. It is 4.9x faster (median 0.56 s against 2.86 s of layout
 per page). Keep `PP-DocLayout_plus-L` as the default; M is a throughput option that sends more
 pages to review.
+
+## Structured extraction (Phase 7, 2026-10-23): synthetic
+
+**Test set** (`newgen_ocr.evaluation.extraction_corpus`, `make eval-extraction`): 13
+document designs, each clean (300 DPI) and as a degraded scan (200 DPI), so 26 pages.
+- GST invoices: intra-state, inter-state, one with arithmetic errors (a line amount and the
+  grand total wrong), and one for an unregistered buyer (no buyer GSTIN).
+- Receipts in English and Hindi (Hindi labels, Devanagari).
+- Bank statements: one that reconciles and one whose closing balance does not.
+- A PAN card, plus Aadhaar cards with a valid and an invalid check digit. The identifiers
+  are fake but checksum-valid, and the cards are marked SPECIMEN.
+- A plain letter, which must stay unclassified.
+- One **held-out invoice design** (different wording, a written-out date, an Sl column, a
+  ruled totals table, letterhead seller) added after the rules were tuned.
+
+Full offline pipeline through the API: ingest, preprocessing, OCR, layout, extraction. Each
+field present on the page is scored correct, wrong or missed; each field absent from the page
+is scored correctly missing, or **invented** if a value was returned.
+
+| Document type | Pages | Correct | Wrong | **Invented** | Correctly missing | Missed | Checks as expected | Classified correctly |
+|---|---|---|---|---|---|---|---|---|
+| GST invoice | 8 | 108 | 0 | **0** | 20 | 0 | 56/56 | 8/8 |
+| Receipt (en, hi) | 4 | 16 | 0 | **0** | 8 | 0 | 12/12 | 4/4 |
+| Bank statement | 4 | 32 | 0 | **0** | 0 | 0 | 16/16 | 4/4 |
+| PAN card | 2 | 8 | 0 | **0** | 0 | 0 | 2/2 | 2/2 |
+| Aadhaar card | 4 | 18 | 0 | **0** | 6 | 0 | 4/4 | 4/4 |
+| Letter (no type) | 2 | – | – | – | – | – | – | 2/2 unclassified |
+| **GST invoice, held-out design** | 2 | 18 | 0 | **0** | 8 | 6 | 8/10 | 2/2 |
+
+What the table shows:
+- **No value was invented and no wrong value was returned:** 0 of 248 field judgements.
+  Absent fields stayed `null` (e.g. the unregistered buyer's GSTIN; IGST on intra-state
+  invoices), and the Aadhaar number with a bad check digit was returned `invalid` rather than
+  accepted.
+- **Every deliberate inconsistency was caught.** The wrong line amount, the wrong grand
+  total and the unbalanced statement each failed their check and routed the document to
+  review. Checks whose inputs were absent (e.g. CGST = SGST on an IGST invoice) were
+  `not_applicable`, not failed.
+- **The tuned designs are optimistic.** The rules were developed on these documents, so the
+  first five rows overstate accuracy on new layouts.
+- **Held-out invoice:**
+  - Before any change, 6 of 12 present values were found.
+  - Generic fixes, not specific to that document, raised this to 9 of 12: the "dated" label,
+    and table rows whose first cell *starts* with a label ("CGST 6%"). After those fixes the
+    design is no longer held out.
+  - The remaining 3 misses are by design. The seller's name and address sit in an unheaded
+    letterhead (OD-29). The seller's GSTIN has no seller/buyer context, so it is returned
+    `ambiguous` rather than guessed, which also makes the tax-type check `not_applicable`.
+- **Review routing:**
+  - Pages are routed to review only for stated reasons. The error variants were routed for
+    check failures and the bad Aadhaar check digit for an invalid field; the PAN cards and
+    the Hindi receipt were routed because the OCR stage flagged low-confidence lines.
+  - Extraction takes 0.02 s per page (median), after OCR and layout.
+
+**Not measured:** real documents (OD-28), unruled bank statements (OD-31), handwriting
+filled forms, multi-page invoices.

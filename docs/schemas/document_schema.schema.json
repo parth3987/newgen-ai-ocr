@@ -1,0 +1,574 @@
+{
+  "$defs": {
+    "CheckSpec": {
+      "properties": {
+        "balance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Balance"
+        },
+        "column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "credit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credit"
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Date"
+        },
+        "debit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Debit"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "factors": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Factors",
+          "type": "array"
+        },
+        "fields": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9_]{0,47}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "row_product",
+            "column_sum",
+            "field_sum",
+            "equal",
+            "date_order",
+            "not_future",
+            "gstin_pan",
+            "gst_tax_type",
+            "balance",
+            "running_balance",
+            "rows_within_period"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "negative_terms": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Negative Terms",
+          "type": "array"
+        },
+        "optional_terms": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Terms",
+          "type": "array"
+        },
+        "table": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Table"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "terms": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Terms",
+          "type": "array"
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": "0.01",
+          "title": "Tolerance"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "title": "CheckSpec",
+      "type": "object"
+    },
+    "ClassificationSpec": {
+      "properties": {
+        "keywords": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Keyword"
+          },
+          "title": "Keywords",
+          "type": "array"
+        },
+        "min_score": {
+          "default": 3.0,
+          "title": "Min Score",
+          "type": "number"
+        },
+        "patterns": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PatternRule"
+          },
+          "title": "Patterns",
+          "type": "array"
+        },
+        "table_headers": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Keyword"
+          },
+          "title": "Table Headers",
+          "type": "array"
+        }
+      },
+      "title": "ClassificationSpec",
+      "type": "object"
+    },
+    "ColumnSpec": {
+      "properties": {
+        "headers": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Headers",
+          "type": "array"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]{0,47}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/FieldType"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "headers"
+      ],
+      "title": "ColumnSpec",
+      "type": "object"
+    },
+    "FieldSpec": {
+      "properties": {
+        "block": {
+          "anyOf": [
+            {
+              "enum": [
+                "first",
+                "rest"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Block"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "labels": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "array"
+        },
+        "max_lines": {
+          "default": 1,
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Max Lines",
+          "type": "integer"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]{0,47}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "pattern": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pattern"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "scan": {
+          "default": false,
+          "title": "Scan",
+          "type": "boolean"
+        },
+        "section": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Section"
+        },
+        "sensitive": {
+          "default": false,
+          "title": "Sensitive",
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/FieldType"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "FieldSpec",
+      "type": "object"
+    },
+    "FieldType": {
+      "enum": [
+        "text",
+        "name",
+        "address",
+        "identifier",
+        "date",
+        "amount",
+        "number",
+        "percent",
+        "gstin",
+        "pan",
+        "aadhaar",
+        "ifsc",
+        "pincode",
+        "phone",
+        "gender"
+      ],
+      "title": "FieldType",
+      "type": "string"
+    },
+    "Keyword": {
+      "properties": {
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "weight": {
+          "default": 1.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Keyword",
+      "type": "object"
+    },
+    "PatternRule": {
+      "properties": {
+        "regex": {
+          "title": "Regex",
+          "type": "string"
+        },
+        "weight": {
+          "default": 1.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "regex"
+      ],
+      "title": "PatternRule",
+      "type": "object"
+    },
+    "TableSpec": {
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ColumnSpec"
+          },
+          "minItems": 1,
+          "title": "Columns",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]{0,47}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "summary_labels": {
+          "default": [
+            "total",
+            "sub total",
+            "subtotal",
+            "grand total"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Summary Labels",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "columns"
+      ],
+      "title": "TableSpec",
+      "type": "object"
+    },
+    "TemplateSpec": {
+      "description": "A known layout (e.g. one vendor's invoice): anchors identify it; regions locate fields.\n\nRegions are fractions of the page width/height: [x0, y0, x1, y1].",
+      "properties": {
+        "anchors": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Anchors",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9_]{0,47}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "page": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "regions": {
+          "additionalProperties": {
+            "maxItems": 4,
+            "minItems": 4,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "default": {},
+          "title": "Regions",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "anchors"
+      ],
+      "title": "TemplateSpec",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "checks": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CheckSpec"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "classification": {
+      "$ref": "#/$defs/ClassificationSpec"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "fields": {
+      "items": {
+        "$ref": "#/$defs/FieldSpec"
+      },
+      "title": "Fields",
+      "type": "array"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9_]{0,47}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "sections": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "default": {},
+      "title": "Sections",
+      "type": "object"
+    },
+    "tables": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/TableSpec"
+      },
+      "title": "Tables",
+      "type": "array"
+    },
+    "templates": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/TemplateSpec"
+      },
+      "title": "Templates",
+      "type": "array"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "title",
+    "classification",
+    "fields"
+  ],
+  "title": "DocumentSchema",
+  "type": "object"
+}

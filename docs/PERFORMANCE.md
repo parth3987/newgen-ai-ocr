@@ -148,3 +148,10 @@ with identical structures on the probe page.
 **Paddle threading (ADR-0020 addendum):** all Paddle inference runs on one dedicated thread
 per process. Calls were already serialised by locks, so measured throughput is unchanged. Scale
 out with processes, not threads.
+
+## Structured extraction (Phase 7, 2026-10-23)
+
+Classification, extraction, validation and checks take **0.02 s per page** (median; max
+0.06 s) on the 26-page synthetic extraction set, on top of OCR and layout. XLSX export of
+one result takes well under a second. Extraction is pure Python with no model, so it does
+not affect sizing (OD-19).

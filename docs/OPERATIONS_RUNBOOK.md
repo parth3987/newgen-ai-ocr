@@ -1,7 +1,7 @@
 # Operations Runbook
 
 Status: development stage. Only the API process exists. Compose services, backups and
-recovery are added in Phase 7 and Phase 10.
+recovery are added in Phase 8 and Phase 10.
 
 ## Start / stop (development)
 
@@ -46,6 +46,10 @@ All variables use the `NGOCR_` prefix. See `.env.example`.
 | `NGOCR_LAYOUT_SCORE_THRESHOLD` | 0.5 | Layout regions scored below this are discarded (their text becomes `unclassified`) |
 | `NGOCR_LAYOUT_MIN_TABLE_SCORE` | 0.90 | SLANet structure score below this routes a table to review |
 | `NGOCR_LAYOUT_RULING_CHECK` | `true` | Cross-check wired tables against traced ruling lines (ADR-0025); keep on |
+| `NGOCR_EXTRACTION_SCHEMA_DIR` | unset | Directory of extra document-type schemas (JSON); validated at startup, ids must not clash with built-ins |
+| `NGOCR_EXTRACTION_DAY_FIRST` | `true` | Read numeric dates as DD/MM/YYYY; `false` reports dates valid both ways as ambiguous |
+| `NGOCR_EXTRACTION_MASK_AADHAAR` | `true` | Mask Aadhaar numbers to the last 4 digits in results and exports. Turn off only with a documented legal basis |
+| `NGOCR_EXTRACTION_MIN_EVIDENCE_CONFIDENCE` | 0.70 | Extracted values read from OCR below this confidence are routed to review |
 
 **Production startup fails** if the OpenCV build includes FFmpeg (the PyPI wheel) and
 `NGOCR_ENVIRONMENT=production`. Install the minimal source-built OpenCV wheel (ADR-0015).
@@ -63,6 +67,7 @@ data/derived/      manifest.json, pages/NNNN.png, text/NNNN.json per document
                    preprocessed/<profile>/run.json + pages/NNNN.png per profile run
                    ocr/<engine>.json, ocr/comparison.json per OCR run
                    layout/<ocr_run>.json per layout run
+                   extraction/<layout_run>.json per extraction result
 data/audit/        audit.jsonl
 ```
 
@@ -91,8 +96,11 @@ is an orphan from a crash between the two commit steps. Report it before deletin
 | `GET /api/v1/layout/status` shows `available: false` | Layout/table models not fetched | Run `make models` at staging |
 | `LAYOUT_FAILED` on a page | Image no longer matches the OCR run (e.g. the preprocessing run was replaced after OCR), or a model error (`layout model failed` log with `error_type`) | Re-run OCR, then layout; report repeated model errors |
 | A layout looks wrong | Inspect `GET .../layout/{ocr_run}/pages/{n}/overlay` (regions, reading order, cells, review flags) | Route to review; collect the page for the real-document test set (OD-27) |
+| Startup fails with a schema error | A custom schema in `NGOCR_EXTRACTION_SCHEMA_DIR` is invalid (unknown field/column/section, bad regex, duplicate id) | Fix the JSON; the message names the schema and the problem |
+| Extraction `unclassified` | No document type reached its score, or two were too close | See `classification.scores`/`evidence`; pass `document_type` explicitly, or add keywords/a template |
+| A value is `ambiguous`/`conflict` | Several candidates or readings; see `candidates` | Review; if systematic, add labels or sections to the schema |
 | Intermittent `RuntimeError: std::exception` from Paddle | Paddle called from more than one thread (fixed: ADR-0020 addendum) | Must not recur; report with the request ID |
-| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 7 moves processing to workers |
+| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 8 moves processing to workers |
 
 ## Logs
 

@@ -23,6 +23,8 @@ class AuditEvent(StrEnum):
     PREPROCESSING_FAILED = "preprocessing.failed"
     OCR_COMPLETED = "ocr.completed"
     LAYOUT_COMPLETED = "layout.completed"
+    EXTRACTION_COMPLETED = "extraction.completed"
+    EXTRACTION_EXPORTED = "extraction.exported"
 
 
 AuditValue = str | int | bool | None

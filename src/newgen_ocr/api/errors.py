@@ -45,6 +45,9 @@ HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.LAYOUT_UNAVAILABLE: 503,
     ErrorCode.LAYOUT_FAILED: 500,
     ErrorCode.LAYOUT_RUN_NOT_FOUND: 404,
+    ErrorCode.UNKNOWN_DOCUMENT_TYPE: 422,
+    ErrorCode.EXTRACTION_NOT_FOUND: 404,
+    ErrorCode.UNSUPPORTED_EXPORT: 422,
 }
 
 _CODE_FOR_HTTP_STATUS = {

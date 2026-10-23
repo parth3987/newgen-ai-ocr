@@ -12,6 +12,12 @@ scanned PDFs and handwriting recognition.
 
 ## Status
 
+Phase 7 (structured data extraction without an LLM) is complete: rule and template
+classification of GST invoices, receipts, bank statements, PAN and Aadhaar cards;
+configurable field schemas; normalised, validated fields and table records with source
+evidence on every value; arithmetic and cross-field checks; JSON/CSV/Excel export (see
+[EXTRACTION](docs/EXTRACTION.md)). Missing values stay missing: on the synthetic test set no
+value was invented.
 Phase 6 (layout, tables and document structure) is complete: layout regions, reading order
 for multi-column pages, headers/footers, table structure with merged cells (verified against
 ruling lines on ruled tables), evidence-only key-value pairs and an inspection overlay, all
@@ -25,8 +31,8 @@ embedded text from native PDF pages, assesses and preprocesses scanned pages, an
 PaddleOCR (primary; Tesseract for Kannada) or Tesseract (baseline/fallback) fully offline with pinned,
 hash-verified models for English, Hindi, Marathi, Telugu, Tamil and Kannada. Accuracy and
 throughput have been measured only on a synthetic corpus so far (see
-[ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md)). Persistence and jobs, field extraction and
-the review UI are still to come. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+[ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md)). Persistence and jobs and the review UI are
+still to come. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start
 
@@ -43,6 +49,8 @@ curl -F file=@document.pdf -F profile=standard localhost:8000/api/v1/documents
 curl -X POST -H 'Content-Type: application/json' -d '{"languages":["te"]}' \
      localhost:8000/api/v1/documents/<document_id>/ocr
 curl -X POST localhost:8000/api/v1/documents/<document_id>/layout   # tables, reading order
+curl -X POST localhost:8000/api/v1/documents/<document_id>/extraction  # fields, checks
+curl -o out.xlsx 'localhost:8000/api/v1/documents/<document_id>/extraction/auto/export?format=xlsx'
 ```
 
 Configuration: see [.env.example](.env.example).
@@ -63,5 +71,7 @@ Configuration: see [.env.example](.env.example).
 | [THIRD_PARTY_NOTICES](docs/THIRD_PARTY_NOTICES.md) | Dependency licenses |
 | [OPERATIONS_RUNBOOK](docs/OPERATIONS_RUNBOOK.md) | Running and troubleshooting |
 | [PERFORMANCE](docs/PERFORMANCE.md) | Measured CPU timings and sizing notes |
+| [EXTRACTION](docs/EXTRACTION.md) | Structured extraction: classification, fields, evidence, checks, export |
+| [EXTRACTION_SCHEMAS](docs/EXTRACTION_SCHEMAS.md) | Built-in document types (generated) |
 | [LANGUAGE_SUPPORT](docs/LANGUAGE_SUPPORT.md) | Supported languages, handwriting status, review routing |
 | [CHANGELOG](CHANGELOG.md) | Changes by phase |

@@ -1,0 +1,81 @@
+{
+  "id": "gst_invoice",
+  "version": "1.0",
+  "title": "GST tax invoice",
+  "description": "Indian GST tax invoice: parties with GSTIN, invoice reference, line items and tax totals.",
+  "classification": {
+    "keywords": [
+      {"text": "tax invoice", "weight": 4},
+      {"text": "invoice", "weight": 1.5},
+      {"text": "gstin", "weight": 1.5},
+      {"text": "cgst", "weight": 1},
+      {"text": "sgst", "weight": 1},
+      {"text": "igst", "weight": 1},
+      {"text": "hsn", "weight": 1},
+      {"text": "place of supply", "weight": 1},
+      {"text": "taxable value", "weight": 1},
+      {"text": "कर बीजक", "weight": 4}
+    ],
+    "patterns": [{"regex": "\\b\\d{2}[A-Z]{5}\\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\\b", "weight": 2}],
+    "table_headers": [{"text": "hsn", "weight": 1}, {"text": "taxable", "weight": 1}],
+    "min_score": 5
+  },
+  "sections": {
+    "seller": ["seller", "supplier", "sold by", "billed by", "from", "vendor"],
+    "buyer": ["buyer", "bill to", "billed to", "ship to", "customer", "recipient", "consignee"]
+  },
+  "fields": [
+    {"name": "invoice_number", "type": "identifier", "required": true,
+     "labels": ["invoice no", "invoice number", "invoice #", "inv no", "bill no", "बीजक संख्या", "चालान संख्या"],
+     "pattern": "[A-Za-z0-9][A-Za-z0-9/\\-]{1,30}"},
+    {"name": "invoice_date", "type": "date", "required": true,
+     "labels": ["invoice date", "date of invoice", "bill date", "date", "dated", "dt", "दिनांक", "तारीख"]},
+    {"name": "due_date", "type": "date", "labels": ["due date", "payment due"]},
+    {"name": "place_of_supply", "type": "text", "labels": ["place of supply"]},
+    {"name": "seller_name", "type": "name", "section": "seller", "block": "first", "labels": ["name"]},
+    {"name": "seller_gstin", "type": "gstin", "required": true, "section": "seller", "scan": true,
+     "labels": ["supplier gstin", "seller gstin", "gstin of supplier", "gstin", "gstin/uin", "gst no"]},
+    {"name": "seller_address", "type": "address", "section": "seller", "block": "rest", "labels": ["address"], "max_lines": 3},
+    {"name": "buyer_name", "type": "name", "section": "buyer", "block": "first", "labels": ["name"]},
+    {"name": "buyer_gstin", "type": "gstin", "section": "buyer", "scan": true,
+     "labels": ["buyer gstin", "recipient gstin", "customer gstin", "gstin", "gstin/uin", "gst no"]},
+    {"name": "buyer_address", "type": "address", "section": "buyer", "block": "rest", "labels": ["address"], "max_lines": 3},
+    {"name": "taxable_value", "type": "amount", "required": true,
+     "labels": ["taxable value", "total taxable value", "taxable amount", "sub total", "subtotal"]},
+    {"name": "cgst_amount", "type": "amount", "labels": ["cgst", "central tax", "cgst amount"]},
+    {"name": "sgst_amount", "type": "amount", "labels": ["sgst", "utgst", "state tax", "sgst amount"]},
+    {"name": "igst_amount", "type": "amount", "labels": ["igst", "integrated tax", "igst amount"]},
+    {"name": "round_off", "type": "amount", "labels": ["round off", "rounding off", "round-off"]},
+    {"name": "grand_total", "type": "amount", "required": true,
+     "labels": ["grand total", "invoice total", "total amount", "total invoice value", "amount payable", "कुल राशि", "कुल"]}
+  ],
+  "tables": [
+    {"name": "line_items", "description": "Goods or services invoiced", "required": true,
+     "columns": [
+       {"name": "description", "type": "text", "required": true,
+        "headers": ["description", "description of goods", "item", "particulars", "product", "goods"]},
+       {"name": "hsn_sac", "type": "identifier", "headers": ["hsn", "sac", "hsn/sac", "hsn code"]},
+       {"name": "quantity", "type": "number", "headers": ["qty", "quantity"]},
+       {"name": "rate", "type": "amount", "headers": ["rate", "unit price", "price"]},
+       {"name": "tax_rate", "type": "percent", "headers": ["gst %", "gst rate", "tax rate", "gst"]},
+       {"name": "amount", "type": "amount", "required": true,
+        "headers": ["amount", "taxable value", "value", "total"]}
+     ]}
+  ],
+  "checks": [
+    {"id": "line_amount", "kind": "row_product", "table": "line_items", "target": "amount",
+     "factors": ["quantity", "rate"], "description": "Line amount = quantity x rate"},
+    {"id": "items_total", "kind": "column_sum", "table": "line_items", "column": "amount",
+     "target": "taxable_value", "description": "Sum of line amounts = taxable value"},
+    {"id": "grand_total", "kind": "field_sum", "target": "grand_total", "terms": ["taxable_value"],
+     "optional_terms": ["cgst_amount", "sgst_amount", "igst_amount", "round_off"],
+     "description": "Grand total = taxable value + taxes + round-off"},
+    {"id": "cgst_equals_sgst", "kind": "equal", "fields": ["cgst_amount", "sgst_amount"],
+     "description": "CGST and SGST are levied in equal halves"},
+    {"id": "tax_type", "kind": "gst_tax_type",
+     "fields": ["seller_gstin", "buyer_gstin", "cgst_amount", "sgst_amount", "igst_amount"],
+     "description": "Same state: CGST + SGST; different states: IGST"},
+    {"id": "invoice_date_not_future", "kind": "not_future", "fields": ["invoice_date"]},
+    {"id": "due_after_invoice", "kind": "date_order", "fields": ["invoice_date", "due_date"]}
+  ]
+}

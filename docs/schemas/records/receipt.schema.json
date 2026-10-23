@@ -1,0 +1,79 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "merchant_gstin": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{2}[A-Z]{5}\\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Merchant Gstin"
+    },
+    "merchant_name": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Merchant Name"
+    },
+    "payment_mode": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Payment Mode"
+    },
+    "receipt_date": {
+      "format": "date",
+      "title": "Receipt Date",
+      "type": "string"
+    },
+    "receipt_number": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Receipt Number"
+    },
+    "total": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Total"
+    }
+  },
+  "required": [
+    "receipt_date",
+    "total"
+  ],
+  "title": "receipt_record",
+  "type": "object"
+}

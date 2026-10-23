@@ -1,0 +1,73 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "aadhaar_number": {
+      "pattern": "^(XXXX XXXX \\d{4}|[2-9]\\d{11})$",
+      "title": "Aadhaar Number",
+      "type": "string"
+    },
+    "address": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Address"
+    },
+    "date_of_birth": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Date Of Birth"
+    },
+    "gender": {
+      "anyOf": [
+        {
+          "pattern": "^(male|female|transgender)$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gender"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "pincode": {
+      "anyOf": [
+        {
+          "pattern": "^[1-9]\\d{5}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pincode"
+    }
+  },
+  "required": [
+    "aadhaar_number",
+    "name"
+  ],
+  "title": "aadhaar_card_record",
+  "type": "object"
+}

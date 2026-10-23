@@ -97,6 +97,17 @@ class Settings(BaseSettings):
     # Cross-check wired-table structure against traced ruling lines.
     layout_ruling_check: bool = True
 
+    # Structured extraction (ADR-0026). Extra document-type schemas (JSON) are loaded from
+    # this directory in addition to the built-ins; ids must not clash.
+    extraction_schema_dir: Path | None = None
+    # Numeric dates are read day-first (DD/MM/YYYY, the Indian convention). When false, a
+    # numeric date valid both ways is reported ambiguous instead.
+    extraction_day_first: bool = True
+    # Aadhaar numbers are stored and exported masked to the last 4 digits (UIDAI guidance).
+    extraction_mask_aadhaar: bool = True
+    # Extracted values whose OCR evidence is less confident than this are routed to review.
+    extraction_min_evidence_confidence: float = Field(default=0.70, ge=0.0, le=1.0)
+
     @model_validator(mode="after")
     def _check_ocr_engines(self) -> Settings:
         if self.ocr_fallback_engine == self.ocr_primary_engine:

@@ -12,6 +12,7 @@ Layout under ``data_dir``::
     derived/<document_id>/ocr/<engine>.json                      OCR run (per requested engine)
     derived/<document_id>/ocr/comparison.json                    engine cross-check
     derived/<document_id>/layout/<ocr_run>.json                  layout + tables of an OCR run
+    derived/<document_id>/extraction/<layout_run>.json           structured extraction
     audit/audit.jsonl                        append-only audit events
 
 Originals and derived artefacts live in separate trees. Derived output is built in a
@@ -34,6 +35,7 @@ import numpy.typing as npt
 from PIL import Image
 
 from newgen_ocr.errors import AppError, ErrorCode
+from newgen_ocr.extraction.models import ExtractionResult
 from newgen_ocr.ingestion.formats import EXTENSIONS, DocumentFormat
 from newgen_ocr.ingestion.models import DocumentManifest, PageText
 from newgen_ocr.layout.models import LayoutRun
@@ -302,3 +304,26 @@ class DocumentStore:
         if not _RUN_NAME.fullmatch(ocr_run) or not path.is_file():
             raise AppError(ErrorCode.LAYOUT_RUN_NOT_FOUND, "Layout run not found")
         return LayoutRun.model_validate_json(path.read_bytes())
+
+    # ------------------------------------------------------------ extraction results
+
+    def _extraction_dir(self, document_id: str) -> Path:
+        return self._document_dir(document_id) / "extraction"
+
+    def write_extraction(self, document_id: str, result: ExtractionResult) -> None:
+        if not _RUN_NAME.fullmatch(result.layout_run):
+            raise ValueError(f"invalid layout run name {result.layout_run!r}")
+        root = self._ensure(self._extraction_dir(document_id))
+        _write_atomic(root / f"{result.layout_run}.json", result.model_dump_json(indent=2).encode())
+
+    def list_extractions(self, document_id: str) -> list[str]:
+        root = self._extraction_dir(document_id)
+        if not root.is_dir():
+            return []
+        return sorted(p.stem for p in root.glob("*.json"))
+
+    def read_extraction(self, document_id: str, layout_run: str) -> ExtractionResult:
+        path = self._extraction_dir(document_id) / f"{layout_run}.json"
+        if not _RUN_NAME.fullmatch(layout_run) or not path.is_file():
+            raise AppError(ErrorCode.EXTRACTION_NOT_FOUND, "Extraction result not found")
+        return ExtractionResult.model_validate_json(path.read_bytes())

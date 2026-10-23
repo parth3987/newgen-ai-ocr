@@ -16,6 +16,10 @@ dependencies = []
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# Built-in extraction schemas ship with the package (ADR-0026).
+newgen_ocr = ["py.typed", "extraction/schemas/*.json"]
+
 # ---------------------------------------------------------------- Ruff
 [tool.ruff]
 line-length = 100
@@ -51,7 +55,7 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 # These ship no type information; their use is confined to newgen_ocr.pdf / newgen_ocr.ocr.
-module = ["pypdfium2", "pypdfium2.*", "paddle", "paddle.*", "paddlex", "paddlex.*", "paddleocr", "paddleocr.*"]
+module = ["pypdfium2", "pypdfium2.*", "paddle", "paddle.*", "paddlex", "paddlex.*", "paddleocr", "paddleocr.*", "openpyxl", "openpyxl.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

@@ -18,6 +18,8 @@ make fonts       # STAGING (network): fetch pinned OFL handwriting fonts (evalua
 make eval-languages    # script/orientation ID, hi/mr ID, mixed-script routing
 make eval-handwriting  # handwriting (synthetic fonts; --dataset DIR for real samples)
 make eval-layout # layout, tables, reading order, key-value pairs (synthetic layout set)
+make eval-extraction   # classification, fields, tables, checks (synthetic extraction set)
+make schemas     # regenerate docs/schemas/ and EXTRACTION_SCHEMAS.md (a test checks drift)
 make check       # lint + typecheck + test + security + licenses
 ```
 
@@ -34,6 +36,7 @@ tests/
                      Gaussian and salt-and-pepper noise, blur, fading, shadow, blank
   fixtures/ocr.py    fake OCR engines and script detector
   fixtures/layout.py fake layout models, a drawn ruled-table page, SLANet-style tokens
+  fixtures/extraction.py documents from text lines: in-memory views or stored OCR/layout runs
   unit/              fast, no external services
   integration/       HTTP API + real local storage (Phase 2); Postgres/Valkey [planned P7]
   e2e/               upload → OCR → export on fixtures       [planned P5+]

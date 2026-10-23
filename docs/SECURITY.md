@@ -28,13 +28,16 @@ decisions and audit trail, model weights (integrity), credentials (DB, broker, A
 | Model tampering | Swapped or corrupted weights | SHA-256 per file in `models.lock.json`, cross-checked against publisher hashes at fetch time, verified before first use at runtime | **Implemented P4** |
 | Runtime model download / hub egress | PaddleX fetching models from Hugging Face/AIStudio/ModelScope/BOS | Model manager disabled (raises), explicit model dirs only, offline env flags, version-pinned lockdown; tests with an audit hook (0 socket attempts) and a no-network namespace | **Implemented P4** (ADR-0020) |
 | Large third-party OCR stack | 56 extra packages incl. unused hub SDKs | Hash-pinned, age-gated, audited, licence-reviewed; never invoked; host egress block remains the binding control | Accepted by owner (ADR-0020) |
+| Spreadsheet formula injection | An OCR'd cell such as `=HYPERLINK(...)` executes when an export is opened | CSV: text starting with `= + - @`, tab or CR prefixed with `'`; XLSX: every text cell stored as a string, never a formula (tested) | **Implemented P7** (ADR-0026) |
+| Personal identifiers in outputs | Aadhaar numbers in extraction results and exports | Masked to the last 4 digits by default in values, raw text, candidates and evidence; identity fields marked `sensitive`; exports audited without content. OCR/layout artefacts still hold page text (OD-30) | **Implemented P7** |
+| LLM / hosted AI in extraction | Field extraction calling an external model | Rules and templates only; import scan and socket audit-hook test on the extraction package | **Implemented P7** (ADR-0026) |
 | Repudiation | Disputed upload/rejection | Audit events with request id, sha256 and outcome code (ADR-0014) | **Implemented P2** (actor is `anonymous` until auth) |
 | Insecure code | Shell injection, unsafe deserialization | Bandit + Ruff `S` rules in the gate | **Implemented** |
 
 ## Security checks in the gate
 
 `make security` (Bandit, pip-audit on both locks), `make secrets` (Gitleaks), `make licenses`,
-`make sbom`. Container image scanning is to be added in Phase 7 (OD-5).
+`make sbom`. Container image scanning is to be added in Phase 8 (OD-5).
 
 Note: `pip-audit` queries public vulnerability databases. It runs in development/CI only,
 never on production hosts.
@@ -45,6 +48,7 @@ never on production hosts.
 - Production documents and credentials are never sent to external AI services, including
   AI-assisted development tools.
 - `data/` is git-ignored.
+- Identity-document test fixtures use fake, checksum-valid numbers and are marked SPECIMEN.
 
 ## Incident considerations
 

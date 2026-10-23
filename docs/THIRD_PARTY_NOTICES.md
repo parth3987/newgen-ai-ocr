@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Generated from `scripts/check_licenses.py` against `requirements.lock` on 2026-10-22 (Phase 4: 77 runtime packages).
+Generated from `scripts/check_licenses.py` against `requirements.lock` on 2026-10-22 (Phase 4: 77 runtime packages); updated 2026-10-23 (Phase 7: + openpyxl, et-xmlfile = 79).
 Update this file whenever a lock file changes.
 
 ## Runtime (shipped)
@@ -23,6 +23,7 @@ Update this file whenever a lock file changes.
 | click | 8.5.0 | BSD-3-Clause |
 | colorlog | 6.12.0 | MIT License |
 | cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause |
+| et_xmlfile | 2.0.0 | MIT (dependency of openpyxl, ADR-0026) |
 | fastapi | 0.143.0 | MIT |
 | filelock | 4.0.12 | MIT |
 | frozenlist | 1.8.0 | Apache-2.0 |
@@ -45,6 +46,7 @@ Update this file whenever a lock file changes.
 | opencv-python-headless | 4.14.0.94 | Apache Software License plus bundled libraries (below). **Development only** (ADR-0015) |
 | opentelemetry-api | 1.45.1 | Apache-2.0 (see ADR-0008) |
 | opt-einsum | 3.3.0 | MIT |
+| openpyxl | 3.1.5 | MIT (Excel export, ADR-0026) |
 | packaging | 26.3 | Apache-2.0 OR BSD-2-Clause |
 | paddleocr | 3.7.0 | Apache License 2.0 |
 | paddlepaddle | 3.2.2 | Apache Software License |

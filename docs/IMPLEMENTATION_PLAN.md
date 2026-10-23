@@ -203,25 +203,56 @@ thread, which affected the Phase 4–5 API too; all Paddle calls now run on one 
 Not supported (recorded): native-text PDF pages (OD-25), unruled tables (OD-26), tables across
 pages, nested and rotated tables; no real-document measurement yet (OD-27).
 
-## Phase 7: Persistence, jobs, containers and authentication (next)
+## Phase 7: Structured data extraction without an LLM (**complete**, 2026-10-23)
 
-PostgreSQL schema + Alembic migrations (documents, pages, preprocessing, OCR and layout runs,
-review items, audit events); Valkey + Celery workers. Ingestion, preprocessing, OCR and layout
-move to idempotent tasks keyed on `(document_id, stage, input_hash)`, with parsing and OCR in
+Redefined by the owner (absorbs the former "Extraction, validation and export" phase;
+persistence moves to Phase 8). Document types chosen 2026-10-23: GST tax invoice, receipt /
+cash memo, bank statement, PAN card, Aadhaar card. Excel via openpyxl (approved).
+
+Delivered: `newgen_ocr/extraction/`. It covers:
+- rule and template classification;
+- JSON field schemas, validated on load, with custom schemas from
+  `NGOCR_EXTRACTION_SCHEMA_DIR`;
+- label, section, table-row, format and template candidates;
+- normalisers (dates, amounts, GSTIN/PAN/Aadhaar/IFSC checksums, addresses, Indian-script
+  digits);
+- table-to-record conversion;
+- Pydantic validation and 11 kinds of consistency check;
+- evidence on every value;
+- review routing and Aadhaar masking;
+- JSON/CSV/XLSX export with formula-injection protection.
+
+Also: `POST/GET …/extraction`, `…/export` and `GET /api/v1/extraction/schemas`; generated
+JSON Schemas (`docs/schemas/`) and type reference (EXTRACTION_SCHEMAS.md), checked by the
+tests; a synthetic test set and `scripts/evaluate_extraction.py` (`make eval-extraction`).
+
+| Acceptance criterion | Evidence | Status |
+|---|---|---|
+| Outputs conform to documented schemas | Result, record and table-row JSON Schemas generated from the Pydantic models and checked for drift by a test; results round-trip through the schema; Pydantic validation of every record | Met |
+| Missing values remain missing rather than being invented | `missing` status with `value: null`; checks never assume 0 (except declared optional terms, stated in the message); synthetic set: **0 invented** in 248 field judgements (incl. the unregistered buyer's GSTIN, IGST on intra-state invoices) | Met (synthetic set) |
+| Validation errors are explicit | `validation.issues` with code and location per field/cell; check results with expected/actual/difference and failing rows; review reasons | Met |
+| Extracted values can be traced back to source evidence | `evidence` on every value and table cell: page, source, OCR line indices, box and units, region/table/row/col, confidence; candidates listed | Met |
+| No external LLM API is called | No LLM or network library in the extraction package (import-scan test); extraction + export under a socket audit hook: 0 events (test) | Met |
+
+Findings: on a held-out invoice design, 6 of 12 values were found blind, and 9 of 12 after
+generic fixes. Parties in an unheaded letterhead are not extracted (OD-29). Also open: real
+documents (OD-28), Aadhaar in OCR artefacts (OD-30), unruled statements (OD-31) and amounts
+in words (OD-32).
+
+## Phase 8: Persistence, jobs, containers and authentication (next)
+
+PostgreSQL schema + Alembic migrations (documents, pages, preprocessing, OCR, layout and extraction runs,
+review items, audit events); Valkey + Celery workers. Ingestion, preprocessing, OCR, layout and
+extraction move to idempotent tasks keyed on `(document_id, stage, input_hash)`, with parsing and OCR in
 workers under resource limits (OD-12), one Paddle thread per worker process. Docker Compose
 (api/worker/postgres/valkey, internal network) with the **minimal source-built OpenCV wheel**
 (ADR-0015), `tesseract-ocr` and the verified `models/`. Readiness checks for DB, broker and
 OCR/layout models; API authentication (OD-6).
 
 Acceptance: compose stack from scratch; migrations apply/roll back; upload → 202 → jobs
-produce the same manifest, preprocessing, OCR and layout runs as Phase 6; idempotent retries;
+produce the same manifest, preprocessing, OCR, layout and extraction results as Phase 7; idempotent retries;
 integration tests on real Postgres/Valkey; container scan clean (OD-5); production startup
 with the minimal OpenCV build and no network.
-
-## Phase 8: Extraction, validation and export
-
-Field extraction, validators, confidence calibration, review triggers; JSON/CSV/Excel exports
-with evidence.
 
 ## Phase 9: Human review UI
 

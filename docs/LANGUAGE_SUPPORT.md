@@ -30,6 +30,19 @@ and verified against ruling lines for all six. Cell text comes from the language
 **Kannada (Tesseract) skips text inside ruled grids on the page pass**: such cells are re-read
 from their crops, and any cell still unread is flagged `table_cell_unread` for review.
 
+## Structured extraction (Phase 7)
+
+Extraction rules are script-independent. Digits in every Indian script are normalised, and
+field labels can be in any language. Built-in label dictionaries:
+- **English:** every field.
+- **Hindi:** date, total, name, father's name, date of birth, address, gender, invoice
+  number, Aadhaar number and PAN labels.
+- **Marathi:** total.
+- **Telugu, Tamil, Kannada:** date and total on receipts.
+
+Measured only on English and Hindi documents (ACCURACY_EVALUATION.md). Add labels for other
+languages in a custom schema and measure them before relying on them.
+
 ## Handwriting
 
 | Language | Status | Engine | Evidence |

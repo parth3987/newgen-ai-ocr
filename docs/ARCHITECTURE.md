@@ -22,11 +22,12 @@ with outbound network access blocked. No external LLM, hosted OCR or inference A
 
 ## 2. Processing pipeline
 
-Stages up to and including layout and table reconstruction are **implemented** (Phases 2–6,
+Stages up to and including structured extraction and export are **implemented** (Phases 2–7,
 synchronous, see ADR-0012): script/language identification and experimental English
 handwriting (Phase 5), and layout, reading order, tables and key-value pairs derived from a
-stored OCR run (Phase 6, ADR-0025). Document classification, field extraction and later
-stages are planned. All Paddle inference runs on one thread per process (ADR-0020 addendum).
+stored OCR run (Phase 6, ADR-0025), and rule/template classification, field and table
+extraction, validation, checks and JSON/CSV/Excel export from a stored layout run (Phase 7,
+ADR-0026). Persistence, jobs and the review UI are planned. All Paddle inference runs on one thread per process (ADR-0020 addendum).
 
 ```
 upload → file validation + quarantine → PDF text extraction or page rendering
@@ -99,8 +100,8 @@ src/newgen_ocr/
     service.py         per-document runs, storage, audit                 [implemented P3]
     models.py          PreprocessingRun / PagePreprocessing / StepRecord [implemented P3]
   storage/local.py     originals / derived / staging / quarantine        [implemented P2]
-  db/                  SQLAlchemy models, Alembic migrations             [planned P7]
-  worker/              Celery app + idempotent tasks                     [planned P7]
+  db/                  SQLAlchemy models, Alembic migrations             [planned P8]
+  worker/              Celery app + idempotent tasks                     [planned P8]
   ocr/
     engine.py          OcrEngine protocol, reading order, page orientation [implemented P4]
     models.py          OcrLine / OcrPage / OcrRun / OcrComparison schema   [implemented P4]
@@ -119,7 +120,6 @@ src/newgen_ocr/
     layout_corpus.py   synthetic table/layout pages with exact ground truth [implemented P6]
     layout_metrics.py  table association F1, reading order, KV scores     [implemented P6]
     (field metrics)                                                       [planned]
-  classification/      document type classification                      [planned P8]
   layout/
     models.py          LayoutRun / PageLayout / Table / KeyValuePair schema [implemented P6]
     detector.py        PP-DocLayout + table classifier + SLANet_plus wrapper [implemented P6]
@@ -128,11 +128,20 @@ src/newgen_ocr/
     key_value.py       evidence-only key-value pairs                       [implemented P6]
     overlay.py         inspection overlay PNG                              [implemented P6]
     service.py         region/line assignment, tables, review, storage     [implemented P6]
-  extraction/          field extraction rules/templates                  [planned P7]
-  validation/          field validators, confidence aggregation          [planned P7]
-  export/              JSON / CSV / Excel writers                        [planned P7]
-  review/              review queue logic                                [planned P8]
-frontend/              React + TypeScript review UI                      [planned P8]
+  extraction/          rules/templates only, no LLM (ADR-0026)           [implemented P7]
+    schema.py          document-type schema format + registry (JSON)
+    schemas/*.json     built-in types: gst_invoice, receipt, bank_statement, pan_card, aadhaar_card
+    document.py        lines/tables view of layout + OCR runs (or PDF text)
+    classify.py        template and weighted-rule classification
+    extract.py         candidates (template/label/section/table row/format) + resolution
+    normalize.py       dates, amounts, identifiers, addresses, Indian-script digits
+    identifiers.py     GSTIN mod-36, PAN, Aadhaar Verhoeff + masking, IFSC
+    checks.py          arithmetic and cross-field consistency checks
+    validation.py      generated Pydantic record / row models
+    export.py          JSON / CSV / XLSX (formula-injection safe)
+    service.py         pipeline, review routing, storage, audit
+  review/              review queue logic                                [planned P9]
+frontend/              React + TypeScript review UI                      [planned P9]
 ```
 
 Dependency rule: `api` and `worker` may depend on domain modules; domain modules never import
@@ -147,11 +156,11 @@ Dependency rule: `api` and `worker` may depend on domain modules; domain modules
 | Errors | Stable `ErrorCode` values in a uniform envelope; unhandled errors return a generic 500 and are logged with traceback [implemented] |
 | Health | Liveness (process up) vs readiness (dependencies usable) [implemented; readiness covers `data_dir` only] |
 | API docs | Swagger UI/ReDoc disabled (they load CDN assets); OpenAPI JSON at `/api/v1/openapi.json` [implemented] |
-| Auth | Not yet implemented. See DECISIONS.md open decision OD-6 [planned P6] |
+| Auth | Not yet implemented. See DECISIONS.md open decision OD-6 [planned P8] |
 | Document storage | Local filesystem, originals separate from derived, atomic commit (ADR-0013) [implemented] |
 | Audit | JSONL lifecycle events without content or filenames (ADR-0014) [implemented] |
 | Untrusted parsing | PDFium (serialised by a lock) and Pillow restricted to the detected format; in-process for now (OD-12) [implemented] |
 | Model integrity | `models.lock.json` pins revisions and SHA-256 per file; verified before first use; never downloaded at runtime (ADR-0021) [implemented] |
-| OpenCV supply | PyPI wheel in development; minimal source build required in production, enforced at startup (ADR-0015) [guard implemented, build planned P6] |
+| OpenCV supply | PyPI wheel in development; minimal source build required in production, enforced at startup (ADR-0015) [guard implemented, build planned P8] |
 | Source preservation | Source page images are immutable; preprocessing outputs live per profile beside them (ADR-0018) [implemented] |
 | Egress control | Host firewall / isolated container network. See OFFLINE_DEPLOYMENT.md [planned P10]. FastAPI telemetry disabled in code (ADR-0008) [implemented] |

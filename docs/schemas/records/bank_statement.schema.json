@@ -1,0 +1,104 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "account_holder": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Account Holder"
+    },
+    "account_number": {
+      "minLength": 1,
+      "title": "Account Number",
+      "type": "string"
+    },
+    "bank_name": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bank Name"
+    },
+    "closing_balance": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Closing Balance"
+    },
+    "ifsc": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Z]{4}0[A-Z0-9]{6}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ifsc"
+    },
+    "opening_balance": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Opening Balance"
+    },
+    "period_end": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Period End"
+    },
+    "period_start": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Period Start"
+    }
+  },
+  "required": [
+    "account_number",
+    "opening_balance",
+    "closing_balance"
+  ],
+  "title": "bank_statement_record",
+  "type": "object"
+}

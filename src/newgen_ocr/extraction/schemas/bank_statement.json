@@ -1,0 +1,55 @@
+{
+  "id": "bank_statement",
+  "version": "1.0",
+  "title": "Bank account statement",
+  "description": "Account statement: account details, period, balances and transactions.",
+  "classification": {
+    "keywords": [
+      {"text": "statement of account", "weight": 4},
+      {"text": "account statement", "weight": 4},
+      {"text": "opening balance", "weight": 2},
+      {"text": "closing balance", "weight": 2},
+      {"text": "ifsc", "weight": 1.5},
+      {"text": "withdrawal", "weight": 1},
+      {"text": "deposit", "weight": 1},
+      {"text": "बैंक विवरण", "weight": 4}
+    ],
+    "patterns": [{"regex": "\\b[A-Z]{4}0[A-Z0-9]{6}\\b", "weight": 1.5}],
+    "table_headers": [{"text": "balance", "weight": 1}, {"text": "debit", "weight": 1}, {"text": "credit", "weight": 1}],
+    "min_score": 5
+  },
+  "fields": [
+    {"name": "bank_name", "type": "name", "labels": ["bank", "bank name"]},
+    {"name": "account_holder", "type": "name", "labels": ["account holder", "account name", "customer name", "name"]},
+    {"name": "account_number", "type": "identifier", "required": true,
+     "labels": ["account no", "account number", "a/c no", "a/c number"], "pattern": "\\d[\\dX*]{7,19}"},
+    {"name": "ifsc", "type": "ifsc", "scan": true, "labels": ["ifsc", "ifsc code"]},
+    {"name": "period_start", "type": "date", "labels": ["from", "period from", "statement from"]},
+    {"name": "period_end", "type": "date", "labels": ["to", "period to", "statement to"]},
+    {"name": "opening_balance", "type": "amount", "required": true, "labels": ["opening balance"]},
+    {"name": "closing_balance", "type": "amount", "required": true, "labels": ["closing balance"]}
+  ],
+  "tables": [
+    {"name": "transactions", "required": true,
+     "summary_labels": ["total", "opening balance", "closing balance", "balance b/f", "balance c/f"],
+     "columns": [
+       {"name": "date", "type": "date", "required": true, "headers": ["date", "txn date", "transaction date", "value date"]},
+       {"name": "description", "type": "text", "headers": ["description", "narration", "particulars", "details"]},
+       {"name": "reference", "type": "identifier", "headers": ["ref no", "cheque no", "chq no", "reference"]},
+       {"name": "debit", "type": "amount", "headers": ["debit", "withdrawal", "withdrawals", "dr"]},
+       {"name": "credit", "type": "amount", "headers": ["credit", "deposit", "deposits", "cr"]},
+       {"name": "balance", "type": "amount", "required": true, "headers": ["balance", "closing balance"]}
+     ]}
+  ],
+  "checks": [
+    {"id": "period_order", "kind": "date_order", "fields": ["period_start", "period_end"]},
+    {"id": "balance_reconciles", "kind": "balance", "table": "transactions", "credit": "credit", "debit": "debit",
+     "fields": ["opening_balance", "closing_balance"],
+     "description": "Opening balance + credits - debits = closing balance"},
+    {"id": "running_balance", "kind": "running_balance", "table": "transactions", "credit": "credit", "debit": "debit",
+     "balance": "balance", "fields": ["opening_balance"],
+     "description": "Each row's balance = previous balance + credit - debit"},
+    {"id": "dates_in_period", "kind": "rows_within_period", "table": "transactions", "date": "date",
+     "fields": ["period_start", "period_end"]}
+  ]
+}

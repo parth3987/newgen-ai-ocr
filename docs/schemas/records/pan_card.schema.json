@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "date_of_birth": {
+      "format": "date",
+      "title": "Date Of Birth",
+      "type": "string"
+    },
+    "father_name": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Father Name"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "pan": {
+      "pattern": "^[A-Z]{5}\\d{4}[A-Z]$",
+      "title": "Pan",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pan",
+    "name",
+    "date_of_birth"
+  ],
+  "title": "pan_card_record",
+  "type": "object"
+}

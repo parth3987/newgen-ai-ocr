@@ -295,7 +295,7 @@ def table_specs(text_dir: Path) -> list[TableSpec]:
     return specs
 
 
-class _Canvas:
+class Canvas:
     def __init__(self, dpi: int) -> None:
         if not features.check("raqm"):
             raise RuntimeError("Pillow raqm layout is required to shape Indic scripts correctly")
@@ -326,7 +326,7 @@ class _Canvas:
         return np.asarray(self.image, dtype=np.uint8)
 
 
-def draw_table(canvas: _Canvas, spec: TableSpec, x: float, y: float) -> TruthTable:
+def draw_table(canvas: Canvas, spec: TableSpec, x: float, y: float) -> TruthTable:
     font = canvas.font(spec.language, 10)
     row_h = canvas.px(0.42)
     xs = [x]
@@ -357,7 +357,7 @@ def draw_table(canvas: _Canvas, spec: TableSpec, x: float, y: float) -> TruthTab
 
 
 def table_page(spec: TableSpec, text_dir: Path, dpi: int) -> tuple[Gray, LayoutSample]:
-    canvas = _Canvas(dpi)
+    canvas = Canvas(dpi)
     margin = canvas.px(1.0)
     lines = load_lines(text_dir, spec.language)
     title_font = canvas.font(spec.language, 14, bold=True)
@@ -387,7 +387,7 @@ def table_page(spec: TableSpec, text_dir: Path, dpi: int) -> tuple[Gray, LayoutS
 
 
 def columns_page(text_dir: Path, dpi: int) -> tuple[Gray, LayoutSample]:
-    canvas = _Canvas(dpi)
+    canvas = Canvas(dpi)
     margin = canvas.px(1.0)
     small = canvas.font("en", 8)
     body = canvas.font("en", 10.5)
@@ -474,7 +474,7 @@ def columns_page(text_dir: Path, dpi: int) -> tuple[Gray, LayoutSample]:
 
 
 def key_value_page(dpi: int) -> tuple[Gray, LayoutSample]:
-    canvas = _Canvas(dpi)
+    canvas = Canvas(dpi)
     margin = canvas.px(1.0)
     body = canvas.font("en", 11)
     pairs = [
