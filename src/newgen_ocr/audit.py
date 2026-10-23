@@ -25,6 +25,15 @@ class AuditEvent(StrEnum):
     LAYOUT_COMPLETED = "layout.completed"
     EXTRACTION_COMPLETED = "extraction.completed"
     EXTRACTION_EXPORTED = "extraction.exported"
+    AUTH_FAILED = "auth.failed"
+    AUTH_DENIED = "auth.denied"
+    REVIEW_QUEUED = "review.queued"
+    REVIEW_AUTO_ACCEPTED = "review.auto_accepted"
+    REVIEW_CLAIMED = "review.claimed"
+    REVIEW_RELEASED = "review.released"
+    REVIEW_CORRECTED = "review.corrected"
+    REVIEW_APPROVED = "review.approved"
+    REVIEW_REJECTED = "review.rejected"
 
 
 AuditValue = str | int | bool | None
@@ -40,7 +49,8 @@ class AuditLog:
             "ts": datetime.now(tz=UTC).isoformat(),
             "event": event.value,
             "request_id": request_id_var.get(),
-            # Placeholder until authentication exists (DECISIONS.md OD-6).
+            # Review actions pass the authenticated user; other endpoints are not
+            # authenticated yet (DECISIONS.md OD-6).
             "actor": "anonymous",
             **fields,
         }

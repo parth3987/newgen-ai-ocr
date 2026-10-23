@@ -1,6 +1,6 @@
 # Offline Deployment
 
-Status: **planned (Phase 10)**. Only the Python dependency pinning described in §2 exists
+Status: **planned (Phase 11)**. Only the Python dependency pinning described in §2 exists
 today.
 
 ## 1. Model

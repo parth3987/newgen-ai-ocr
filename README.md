@@ -12,6 +12,13 @@ scanned PDFs and handwriting recognition.
 
 ## Status
 
+Phase 8 (confidence, verification and human review) is complete: every extracted value
+passes field-specific gates before it counts as verified (a confidence threshold calibrated
+on held-out ground truth, agreement of a second OCR engine, business-rule checks, clean
+source pages). Everything else goes to a review queue with source crops, reason-coded
+corrections, four-eyes approval and a tamper-evident history (see
+[REVIEW](docs/REVIEW.md)). Automatic acceptance is off by default, and thresholds have so
+far been fitted on synthetic documents only.
 Phase 7 (structured data extraction without an LLM) is complete: rule and template
 classification of GST invoices, receipts, bank statements, PAN and Aadhaar cards;
 configurable field schemas; normalised, validated fields and table records with source
@@ -31,7 +38,7 @@ embedded text from native PDF pages, assesses and preprocesses scanned pages, an
 PaddleOCR (primary; Tesseract for Kannada) or Tesseract (baseline/fallback) fully offline with pinned,
 hash-verified models for English, Hindi, Marathi, Telugu, Tamil and Kannada. Accuracy and
 throughput have been measured only on a synthetic corpus so far (see
-[ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md)). Persistence and jobs and the review UI are
+[ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md)). Persistence and jobs are
 still to come. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start

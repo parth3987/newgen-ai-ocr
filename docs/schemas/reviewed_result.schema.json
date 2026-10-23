@@ -1,0 +1,421 @@
+{
+  "$defs": {
+    "CheckResult": {
+      "properties": {
+        "actual": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual"
+        },
+        "difference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Difference"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "fields": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "rows": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/CheckStatus"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "status",
+        "message"
+      ],
+      "title": "CheckResult",
+      "type": "object"
+    },
+    "CheckStatus": {
+      "enum": [
+        "passed",
+        "failed",
+        "not_applicable"
+      ],
+      "title": "CheckStatus",
+      "type": "string"
+    },
+    "Decision": {
+      "properties": {
+        "acknowledged_checks": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Acknowledged Checks",
+          "type": "array"
+        },
+        "action": {
+          "enum": [
+            "approved",
+            "rejected",
+            "auto_accepted"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "actor": {
+          "title": "Actor",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "comment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        }
+      },
+      "required": [
+        "action",
+        "actor",
+        "at"
+      ],
+      "title": "Decision",
+      "type": "object"
+    },
+    "FieldStatus": {
+      "enum": [
+        "extracted",
+        "missing",
+        "ambiguous",
+        "conflict",
+        "invalid"
+      ],
+      "title": "FieldStatus",
+      "type": "string"
+    },
+    "ReviewItemStatus": {
+      "enum": [
+        "pending",
+        "in_review",
+        "approved",
+        "rejected",
+        "auto_accepted"
+      ],
+      "title": "ReviewItemStatus",
+      "type": "string"
+    },
+    "ReviewedValue": {
+      "properties": {
+        "corrected_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Corrected By"
+        },
+        "source": {
+          "enum": [
+            "extracted",
+            "verified",
+            "confirmed",
+            "corrected",
+            "cleared",
+            "unresolved"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FieldStatus"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "status",
+        "source"
+      ],
+      "title": "ReviewedValue",
+      "type": "object"
+    },
+    "ValidationIssue": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "location": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "title": "Location",
+          "type": "array"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "location",
+        "message"
+      ],
+      "title": "ValidationIssue",
+      "type": "object"
+    },
+    "ValidationReport": {
+      "properties": {
+        "issues": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "valid": {
+          "title": "Valid",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "valid"
+      ],
+      "title": "ValidationReport",
+      "type": "object"
+    }
+  },
+  "description": "The extraction with corrections applied, re-validated and re-checked.",
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/CheckResult"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "decision": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Decision"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "document_id": {
+      "title": "Document Id",
+      "type": "string"
+    },
+    "fields": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ReviewedValue"
+      },
+      "title": "Fields",
+      "type": "object"
+    },
+    "layout_run": {
+      "title": "Layout Run",
+      "type": "string"
+    },
+    "record": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "title": "Record",
+      "type": "object"
+    },
+    "revision": {
+      "title": "Revision",
+      "type": "integer"
+    },
+    "schema_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Schema Id"
+    },
+    "status": {
+      "$ref": "#/$defs/ReviewItemStatus"
+    },
+    "tables": {
+      "additionalProperties": {
+        "items": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "title": "Tables",
+      "type": "object"
+    },
+    "unresolved": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unresolved",
+      "type": "array"
+    },
+    "validation": {
+      "$ref": "#/$defs/ValidationReport"
+    }
+  },
+  "required": [
+    "document_id",
+    "layout_run",
+    "schema_id",
+    "status",
+    "revision",
+    "record",
+    "fields",
+    "tables",
+    "validation",
+    "checks",
+    "unresolved"
+  ],
+  "title": "ReviewedResult",
+  "type": "object"
+}

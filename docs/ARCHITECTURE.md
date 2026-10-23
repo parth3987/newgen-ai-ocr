@@ -27,7 +27,9 @@ synchronous, see ADR-0012): script/language identification and experimental Engl
 handwriting (Phase 5), and layout, reading order, tables and key-value pairs derived from a
 stored OCR run (Phase 6, ADR-0025), and rule/template classification, field and table
 extraction, validation, checks and JSON/CSV/Excel export from a stored layout run (Phase 7,
-ADR-0026). Persistence, jobs and the review UI are planned. All Paddle inference runs on one thread per process (ADR-0020 addendum).
+ADR-0026), and verification gates with calibrated thresholds, a review queue, corrections,
+approval and a minimal review page (Phase 8, ADR-0027/0028). Persistence and jobs are
+planned. All Paddle inference runs on one thread per process (ADR-0020 addendum).
 
 ```
 upload → file validation + quarantine → PDF text extraction or page rendering
@@ -140,8 +142,17 @@ src/newgen_ocr/
     validation.py      generated Pydantic record / row models
     export.py          JSON / CSV / XLSX (formula-injection safe)
     service.py         pipeline, review routing, storage, audit
-  review/              review queue logic                                [planned P9]
-frontend/              React + TypeScript review UI                      [planned P9]
+  auth/                local hashed bearer tokens + roles (ADR-0027)     [implemented P8]
+  review/              verification and review (ADR-0028)                [implemented P8]
+    acceptance.py      field gates: calibrated threshold, engines, checks, sources
+    calibration.py     threshold fitting (Wilson bound, type pooling), held-out evaluation
+    engines.py         field-level cross-check against the second OCR engine
+    corrections.py     normalised corrections, reviewed result (re-validated, re-checked)
+    store.py           items + hash-chained history on the local store (flock)
+    crops.py           evidence crops and page previews (Aadhaar redaction)
+    service.py         queue, claim/correct/approve/reject, patterns
+    ui/                minimal review page (static HTML/CSS/JS, strict CSP)
+frontend/              React + TypeScript review application             [planned P10]
 ```
 
 Dependency rule: `api` and `worker` may depend on domain modules; domain modules never import

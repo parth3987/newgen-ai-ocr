@@ -64,7 +64,7 @@ Containers will also set `OTEL_SDK_DISABLED=true`.
 
 ### ADR-0009: Separate liveness and readiness probes (2026-10-22)
 `/health/live` performs no I/O (it is for restart decisions). `/health/ready` checks the
-dependencies needed to accept work (currently `data_dir`; DB and broker are added in Phase 8)
+dependencies needed to accept work (currently `data_dir`; DB and broker are added in Phase 9)
 and returns 503 with per-check results when any check fails.
 
 ### ADR-0010: Approved formats detected by signature (2026-10-22)
@@ -88,13 +88,13 @@ unnecessary OCR on image-heavy digital pages for never silently losing scanned c
 Thresholds are named constants and will be tuned against the evaluation set (Phase 5).
 
 ### ADR-0012: Synchronous ingestion with a global PDFium lock (temporary) (2026-10-22)
-Until the job queue exists (Phase 8), `POST /api/v1/documents` ingests synchronously in
+Until the job queue exists (Phase 9), `POST /api/v1/documents` ingests synchronously in
 FastAPI's thread pool. PDFium is not thread-safe, so all PDFium use is serialised by
 `PDFIUM_LOCK`. Throughput is therefore limited to one PDF at a time per process, which is
 acceptable for development and must not be used for production volumes.
 
 ### ADR-0013: Filesystem document store and manifests as the metadata record (2026-10-22)
-Until PostgreSQL arrives (Phase 8), `derived/<id>/manifest.json` is the system of record for
+Until PostgreSQL arrives (Phase 9), `derived/<id>/manifest.json` is the system of record for
 document metadata. Originals (`originals/`, mode 0440) are stored separately from derived
 artefacts (`derived/`). Derived output is built in `staging/` and renamed into place
 atomically, with the manifest included. Client filenames never touch the filesystem. Document
@@ -105,7 +105,7 @@ recorded so they can be deduplicated later).
 `audit/audit.jsonl` records `document.accepted` and `document.rejected` with request id,
 actor (`anonymous` until auth exists), sha256, size, format, page counts and error code,
 never filenames or content. Each line is appended with `O_APPEND` and fsync. It moves to a
-database table in Phase 8, with the file kept as a tamper-evident export.
+database table in Phase 9, with the file kept as a tamper-evident export.
 
 ### ADR-0015: OpenCV supplied as a minimal source build in production (2026-10-22)
 Decided by the project owner. The PyPI `opencv-python-headless` 4.14.0.94 wheel loads 16
@@ -119,7 +119,7 @@ only the modules we need (core, imgproc, photo), without FFmpeg/videoio/OpenSSL.
 published as an internal hash-pinned wheel that also satisfies PaddleOCR's `cv2`
 requirement. Development and CI use the PyPI wheel. **Enforcement:** `create_app` refuses
 to start with `NGOCR_ENVIRONMENT=production` if `cv2.getBuildInformation()` reports
-`FFMPEG: YES` (`newgen_ocr/imaging/runtime.py`, tested). The build itself is a Phase 8/10 task.
+`FFMPEG: YES` (`newgen_ocr/imaging/runtime.py`, tested). The build itself is a Phase 9/11 task.
 
 ### ADR-0016: Orientation and skew by projection profiles; 180° resolved at OCR (2026-10-22)
 Skew is the angle that maximises the sharpness of the ink projection profile (coarse 0.5°
@@ -343,6 +343,51 @@ those two packages were added (the lock was regenerated without `--upgrade`).
 248 field judgements; on a held-out invoice design, 6 of 12 values were found before
 generic fixes and 9 of 12 after, again 0 wrong and 0 invented.
 
+### ADR-0027: Local bearer tokens with roles for review (2026-10-23)
+The owner chose local tokens over a trusted proxy header or authenticating every endpoint in
+this phase. Design:
+- **Tokens** are `ngocr_<id>_<secret>` with a 256-bit secret from `secrets`. Only its
+  SHA-256 is stored, in a JSON file (`NGOCR_AUTH_TOKENS_FILE`, mode 0600). A fast hash is
+  sufficient for random secrets of this length, and comparison is constant time.
+- **Management** is with `python -m newgen_ocr.auth create|list|revoke`. Tokens may expire,
+  and the file is re-read on change, so revocation needs no restart.
+- **Roles** are ordered `viewer < reviewer < approver < admin` and checked per endpoint.
+- **Audit:** failures record the reason and the token's public id, never the token. Review
+  actions record the authenticated user as `actor`.
+- **Scope:** only the review endpoints are authenticated now. The rest follow in the
+  persistence phase (OD-6), with database-backed keys and a session login for the full
+  review application.
+- **No new dependency.**
+
+### ADR-0028: Calibrated verification gates and a human review queue (2026-10-23)
+Automatic acceptance is never based on OCR confidence alone (REVIEW.md):
+- **Gates.** A value is verified only when it passes all of these:
+  - it was extracted;
+  - the document type is reliable;
+  - its source page is clean;
+  - no check involving it failed;
+  - the second OCR engine does not read a different value there;
+  - its confidence reaches a threshold calibrated **for that field** on held-out ground
+    truth (one-sided 95% Wilson lower bound of precision ≥ 0.95 over ≥ 50 values).
+  Fields without enough data use their type's pooled threshold only when their own data
+  shows no error above it; otherwise they have no threshold and always go to a person.
+- **Calibration file.** Thresholds live in a calibration file whose id is a hash of its
+  content, bound to schema versions, with its dataset kind recorded.
+- **Automatic acceptance** is off by default, and the owner chose to keep it so until
+  thresholds are fitted on real documents. Production refuses a synthetic calibration
+  unless explicitly allowed.
+- **Review queue, owner's choices of 2026-10-23.**
+  - Storage: the local file store, with the history as an append-only, hash-chained JSON
+    Lines file, under an inter-process `flock`.
+  - Page: a minimal built-in review page with no external assets.
+  - Corrections are normalised and validated like extracted values, need reason codes,
+    and use optimistic concurrency.
+  - Approval requires a second person (configurable) and explicit acknowledgement of
+    checks that still fail.
+- **Engine cross-check.** A field-level comparison with the second engine's words replaces
+  the page-level text comparison for verification. The page-level comparison stays in the
+  OCR result.
+
 ## Open decisions (defaults in force until decided)
 
 | ID | Question | Default assumption |
@@ -351,21 +396,21 @@ generic fixes and 9 of 12 after, again 0 wrong and 0 invented.
 | OD-2 | Queue broker | Valkey (BSD-3-Clause) |
 | OD-3 | Handwriting model | None selected. Candidates are license-reviewed in the handwriting phase; **stop and report** if none is clearly licensed |
 | OD-4 | PaddleOCR coverage for te/hi/ta/kn/mr on CPU | **Measured on the synthetic corpus (Phase 4)**: see ACCURACY_EVALUATION.md. Real-scan accuracy remains unmeasured |
-| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 8) |
-| OD-6 | API authentication | API keys (hashed in DB) for system integrations, plus session login for the review UI; OIDC optional later |
+| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 9) |
+| OD-6 | API authentication | **Partly done (ADR-0027):** review endpoints use local hashed tokens with roles. Default for the rest: database-backed API keys for integrations and a session login for the full review application in Phase 9; OIDC optional later. Until then the non-review endpoints are unauthenticated |
 | OD-7 | Test-client transport | Starlette warns that `httpx` is deprecated in favour of `httpx2`. Migration is held for approval (new dependency) |
 | OD-8 | GitHub Actions pinning | Pinned to major tags today; pin to commit SHAs before the first protected-branch merge |
 | OD-9 | Untracked empty `requirements.txt` | Left untouched; superseded by `requirements.in`/`.lock`. Propose deleting it |
 | OD-10 | Git remote is a placeholder (`YOUR_USERNAME`) | No pushes or commits until the owner authorizes them and sets the remote |
 | OD-11 | Dev host is Ubuntu 26.04, target is 24.04 | CI runs on `ubuntu-24.04`; containers will use a 24.04 base (OD-1) |
-| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 8 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
+| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 9 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
 | OD-13 | Retention of rejected uploads | Deleted immediately; only the audit event (sha256, size, code) remains. Alternative: a quarantine hold for security review |
 | OD-14 | Rotated PDF pages | `rotation` is recorded. Text bounding boxes are in unrotated page space with a top-left origin, while rendered images follow PDFium's display orientation. Layout (Phase 6) works in OCR-image coordinates, so it is unaffected; reconcile together with OD-25 |
 | OD-15 | Upload spooling | Starlette spools multipart files over 1 MiB to `TMPDIR` before the handler runs (size-capped by the body limit). Default: set `TMPDIR` to a directory on the protected data volume in deployment |
-| OD-16 | Storage growth and retention | About 4–6 MB per scanned page at 300 DPI (about 40–60 GB/day at 10k pages/day). Default: none yet. Propose a retention period per tree (derived artefacts can be regenerated from originals) before Phase 10 |
+| OD-16 | Storage growth and retention | About 4–6 MB per scanned page at 300 DPI (about 40–60 GB/day at 10k pages/day). Default: none yet. Propose a retention period per tree (derived artefacts can be regenerated from originals) before Phase 11 |
 | OD-17 | Per-language engine choice | **Decided 2026-10-22 on measurement:** Kannada → Tesseract-primary (PaddleOCR CER 0.388 vs Tesseract 0.013). Others PaddleOCR-primary (see OD-21) |
 | OD-18 | Page-level 180° orientation for Indic scripts | **Resolved 2026-10-23 (ADR-0023):** Tesseract OSD orientation is applied before OCR for every script; measured correct on all upright/180° corpus pages. Evaluate PaddleOCR's document-orientation classifier (`PP-LCNet_x1_0_doc_ori`) or Tesseract OSD |
-| OD-19 | OCR throughput vs 10k pages/day | About 6–7 s/page for PaddleOCR on a 2-core laptop (ACCURACY_EVALUATION.md). 10k pages/day is about 19 core-hours/day, so it must be measured on the reference server before sizing (Phase 10) |
+| OD-19 | OCR throughput vs 10k pages/day | About 6–7 s/page for PaddleOCR on a 2-core laptop (ACCURACY_EVALUATION.md). 10k pages/day is about 19 core-hours/day, so it must be measured on the reference server before sizing (Phase 11) |
 | OD-20 | Mixed-language pages | **Resolved 2026-10-23 (ADR-0023):** the census detects secondary scripts; Indian script + English pages use the Indian-script recogniser (reads Latin); two Indian scripts on a page are flagged for review |
 | OD-21 | Should more languages default to Tesseract? | On the synthetic corpus Tesseract equals or beats PaddleOCR for every language and is about 3x faster, but the corpus favours Tesseract (clean font renders). Default: keep PaddleOCR primary except Kannada until a real-document evaluation set is measured; then decide per language |
 | OD-22 | Better English handwriting recogniser | `PP-OCRv5_server_rec` underperformed the printed model on the synthetic proxy and drops word spaces. Candidates to evaluate on real samples: `PP-OCRv6_medium_rec` (Apache-2.0, claims handwritten English). TrOCR remains excluded (IAM non-commercial training data) |
@@ -379,4 +424,10 @@ generic fixes and 9 of 12 after, again 0 wrong and 0 invented.
 | OD-30 | Aadhaar numbers in OCR/layout artefacts | Extraction masks them; OCR and layout runs keep the page text verbatim. Options: redact Aadhaar patterns in stored OCR text, or restrict and expire derived artefacts (with OD-16) |
 | OD-31 | Unruled bank statements | Transaction tables without rules are not detected by layout (OD-26), so their transactions are not extracted (the statement is routed to review). Candidate: line-based transaction parsing with column positions from the header line |
 | OD-32 | Amounts in words | "Rupees Eleven Thousand Eight Hundred Only" is not parsed or cross-checked against the total. Candidate: an Indian-numbering words parser as an extra check |
-
+| OD-33 | Calibration on real documents | Thresholds were fitted on synthetic documents only, and automatic acceptance stays off. Default: label consented real documents (or use approved reviews, `--from-reviews`) and refit before enabling it; at least 50 gated values per field |
+| OD-34 | Off-host copy of the review history | The hash chain detects edits but cannot stop a full rewrite by someone with write access. Default: ship `history.jsonl` to write-once storage (or the database with append-only grants) in Phase 9 |
+| OD-35 | Review page sign-in | Reviewers paste a token, kept in the tab's session storage (strict CSP, no external scripts). Alternative: server sessions with HttpOnly cookies and CSRF protection, with the full review application |
+| OD-36 | Brute-force protection for tokens | Failures are audited but not rate-limited (secrets are 256-bit, so guessing is infeasible). Default: add per-address rate limiting at the reverse proxy |
+| OD-37 | Text cells in tables vs the second engine | A description cell the second engine reads differently blocks table verification, while numbers are corroborated by row checks. Default: keep (conservative); revisit with real documents |
+| OD-38 | Corrections after re-extraction | A new extraction makes a new revision and earlier corrections are not carried over (values and candidates may have changed); the old revision is kept read-only. Alternative: re-apply corrections whose location and extracted value are unchanged |
+| OD-39 | Name fields accepting identifiers | On 3 heavily degraded PAN cards the PAN number was extracted as the holder's name (confidence 0.999; caught by the page-quality gate). Candidate: name/text normalisers reject values that match an identifier format (PAN, GSTIN, Aadhaar) |

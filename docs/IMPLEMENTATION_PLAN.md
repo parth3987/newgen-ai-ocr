@@ -239,28 +239,83 @@ generic fixes. Parties in an unheaded letterhead are not extracted (OD-29). Also
 documents (OD-28), Aadhaar in OCR artefacts (OD-30), unruled statements (OD-31) and amounts
 in words (OD-32).
 
-## Phase 8: Persistence, jobs, containers and authentication (next)
+## Phase 8: Confidence, verification and human review (**complete**, 2026-10-23)
 
-PostgreSQL schema + Alembic migrations (documents, pages, preprocessing, OCR, layout and extraction runs,
-review items, audit events); Valkey + Celery workers. Ingestion, preprocessing, OCR, layout and
-extraction move to idempotent tasks keyed on `(document_id, stage, input_hash)`, with parsing and OCR in
-workers under resource limits (OD-12), one Paddle thread per worker process. Docker Compose
-(api/worker/postgres/valkey, internal network) with the **minimal source-built OpenCV wheel**
-(ADR-0015), `tesseract-ocr` and the verified `models/`. Readiness checks for DB, broker and
-OCR/layout models; API authentication (OD-6).
+Defined by the owner on 2026-10-23. It takes the review queue and a minimal review page from
+the former review-UI phase; persistence moves to Phase 9. The owner's choices:
+- local hashed tokens with roles (ADR-0027);
+- a minimal built-in review page;
+- the local file store;
+- thresholds calibrated on held-out synthetic data, with automatic acceptance gated and
+  **off by default** (ADR-0028).
 
-Acceptance: compose stack from scratch; migrations apply/roll back; upload → 202 → jobs
-produce the same manifest, preprocessing, OCR, layout and extraction results as Phase 7; idempotent retries;
-integration tests on real Postgres/Valkey; container scan clean (OD-5); production startup
-with the minimal OpenCV build and no network.
+Delivered: `newgen_ocr/review/` and `newgen_ocr/auth/` (REVIEW.md). They cover:
+- field-specific verification gates (calibrated threshold, engine agreement, business
+  rules, source flags);
+- calibration with a Wilson lower bound and type pooling, a held-out test split, and the
+  `scripts/calibrate_review.py` script (`make calibrate`);
+- a field-level cross-check against the second OCR engine;
+- the review queue with priorities, claim/release, corrections normalised like extracted
+  values, approve (four eyes, acknowledged failing checks) and reject;
+- reviewed results re-validated and re-checked;
+- a hash-chained history and content-free audit events;
+- source crops and page previews (Aadhaar blacked out);
+- the `/review` page;
+- correction patterns.
 
-## Phase 9: Human review UI
+| Acceptance criterion | Evidence | Status |
+|---|---|---|
+| Low-confidence and conflicting results are routed appropriately | Per-field reasons (`below_threshold`, `not_calibrated`, `engine_disagreement`, `check_failed`, `conflict`, `ambiguous`, `invalid`, `source_flagged`, `required_missing`); priority ordering; failed checks and engine disagreements never auto-accepted (tests) | Met |
+| Corrections are auditable | Each correction records actor, role, time, request id, location, extracted/previous/new value, reason code and comment in a hash-chained history (tamper test); audit events without content; four-eyes approval; optimistic concurrency | Met |
+| Confidence thresholds are supported by evaluation data | Per-field thresholds fitted on 400 synthetic documents and measured on 200 held-out documents, with reliability bins (ACCURACY_EVALUATION.md "Review thresholds"): 831 of 1,375 test values verified, all correct; 26 of 200 documents eligible, all correct; every wrong value in the set was routed to a person | Met on **synthetic** data; real documents pending (OD-33) |
+| Automatic acceptance is not based on uncalibrated OCR confidence alone | No calibration means no verified value (test). Verification needs five gates besides the threshold. Thresholds come only from a hash-identified calibration file bound to schema versions. Auto-accept is off by default, and production refuses a synthetic calibration | Met |
 
-React + TypeScript review application served locally (no CDN assets): queue fed by
-`review.reasons`, page viewer with overlays, engine disagreements, field correction, audit trail.
+Open: real-document calibration (OD-33), an off-host history copy (OD-34), session sign-in
+(OD-35), token rate limiting (OD-36), table text cells against the second engine (OD-37),
+and corrections across re-extraction (OD-38).
 
-## Phase 10: Offline deployment and hardening
+## Phase 9: Persistence, jobs, containers and authentication (next)
 
-Offline bundle (wheels, images, models, SBOM, hashes); host-level egress blocking verified by
-test; backups/restore drill; storage retention (OD-16); runbook; throughput benchmarks on the
-reference CPU server (OD-19); real-document and real-handwriting evaluation sets (OD-21, OD-23).
+Planned work:
+- **Database:** a PostgreSQL schema with Alembic migrations, covering documents, pages,
+  preprocessing, OCR, layout and extraction runs, review items and history, and audit
+  events.
+- **Workers:** Valkey + Celery. Ingestion, preprocessing, OCR, layout, extraction and review
+  queueing move to idempotent tasks keyed on `(document_id, stage, input_hash)`. Parsing and
+  OCR run in workers under resource limits (OD-12), with one Paddle thread per worker
+  process.
+- **Containers:** Docker Compose (api/worker/postgres/valkey, internal network) with the
+  **minimal source-built OpenCV wheel** (ADR-0015), `tesseract-ocr` and the verified
+  `models/`.
+- **Readiness checks** for the database, broker and OCR/layout models.
+- **Authentication on every endpoint:** database-backed API keys and session sign-in
+  (OD-6, OD-35).
+- **Review history** in append-only storage (OD-34).
+
+Acceptance:
+- the compose stack starts from scratch;
+- migrations apply and roll back;
+- upload → 202 → jobs produce the same results as Phase 8;
+- retries are idempotent;
+- integration tests run on real Postgres/Valkey;
+- the container scan is clean (OD-5);
+- production starts with the minimal OpenCV build and no network.
+
+## Phase 10: Full review application
+
+A React + TypeScript review application served locally (no CDN assets). It replaces the
+minimal `/review` page:
+- page viewer with layout overlays and side-by-side engine readings;
+- keyboard-driven correction and batch confirmation;
+- reviewer workload and correction-pattern dashboards.
+
+## Phase 11: Offline deployment and hardening
+
+Planned work:
+- offline bundle (wheels, images, models, SBOM, hashes);
+- host-level egress blocking, verified by test;
+- backups and a restore drill;
+- storage retention (OD-16);
+- runbook;
+- throughput benchmarks on the reference CPU server (OD-19);
+- real-document and real-handwriting evaluation sets (OD-21, OD-23, OD-28, OD-33).

@@ -2,8 +2,9 @@
 
 Usage: python scripts/generate_schemas.py [--check]
 
-Writes JSON Schema for the extraction result, the document-type schema format and each
-built-in document type's validated record, plus a Markdown reference of every built-in
+Writes JSON Schema for the extraction result, the document-type schema format, each
+built-in document type's validated record and the review formats (item, reviewed result,
+correction request, history event, calibration), plus a Markdown reference of every built-in
 document type. ``--check`` fails if any file differs (run by the test suite), so the
 documented schemas cannot drift from what the API returns.
 """
@@ -18,6 +19,13 @@ from pathlib import Path
 from newgen_ocr.extraction.models import ExtractionResult
 from newgen_ocr.extraction.schema import DocumentSchema, SchemaRegistry
 from newgen_ocr.extraction.validation import record_model, row_model
+from newgen_ocr.review.models import (
+    Calibration,
+    CorrectionRequest,
+    HistoryEvent,
+    ReviewedResult,
+    ReviewItem,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "schemas"
@@ -82,6 +90,11 @@ def expected_files() -> dict[Path, str]:
         OUT / "extraction_result.schema.json": _json(ExtractionResult.model_json_schema()),
         OUT / "document_schema.schema.json": _json(DocumentSchema.model_json_schema()),
         REFERENCE: reference(registry),
+        OUT / "review_item.schema.json": _json(ReviewItem.model_json_schema()),
+        OUT / "reviewed_result.schema.json": _json(ReviewedResult.model_json_schema()),
+        OUT / "correction_request.schema.json": _json(CorrectionRequest.model_json_schema()),
+        OUT / "review_history_event.schema.json": _json(HistoryEvent.model_json_schema()),
+        OUT / "calibration.schema.json": _json(Calibration.model_json_schema()),
     }
     for schema in registry.schemas.values():
         files[OUT / "records" / f"{schema.id}.schema.json"] = _json(

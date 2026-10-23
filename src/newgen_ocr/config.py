@@ -108,6 +108,32 @@ class Settings(BaseSettings):
     # Extracted values whose OCR evidence is less confident than this are routed to review.
     extraction_min_evidence_confidence: float = Field(default=0.70, ge=0.0, le=1.0)
 
+    # Authentication (ADR-0027). Hashed bearer tokens with roles, managed with
+    # `python -m newgen_ocr.auth`. Default file: <data_dir>/auth/tokens.json.
+    auth_tokens_file: Path | None = None
+
+    # Verification and review (ADR-0028). Field thresholds come from a calibration file made
+    # by scripts/calibrate_review.py on held-out ground truth; without one nothing is
+    # verified and every document waits for a person.
+    review_calibration_file: Path | None = None
+    # Accept documents without a person when every value passes its calibrated gates. Off by
+    # default; requires a calibration file.
+    review_auto_accept: bool = False
+    # Production refuses auto-acceptance from a synthetic calibration unless this is set.
+    review_allow_synthetic_calibration: bool = False
+    # The approver must not be the person who corrected or confirmed values (four eyes).
+    review_require_second_person: bool = True
+
+    @property
+    def auth_tokens_path(self) -> Path:
+        return self.auth_tokens_file or self.data_dir / "auth" / "tokens.json"
+
+    @model_validator(mode="after")
+    def _check_review(self) -> Settings:
+        if self.review_auto_accept and self.review_calibration_file is None:
+            raise ValueError("review_auto_accept requires review_calibration_file")
+        return self
+
     @model_validator(mode="after")
     def _check_ocr_engines(self) -> Settings:
         if self.ocr_fallback_engine == self.ocr_primary_engine:

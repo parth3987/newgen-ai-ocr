@@ -20,6 +20,7 @@ make eval-handwriting  # handwriting (synthetic fonts; --dataset DIR for real sa
 make eval-layout # layout, tables, reading order, key-value pairs (synthetic layout set)
 make eval-extraction   # classification, fields, tables, checks (synthetic extraction set)
 make schemas     # regenerate docs/schemas/ and EXTRACTION_SCHEMAS.md (a test checks drift)
+make calibrate   # fit review thresholds on the synthetic calibration set (about 2 h, CPU)
 make check       # lint + typecheck + test + security + licenses
 ```
 

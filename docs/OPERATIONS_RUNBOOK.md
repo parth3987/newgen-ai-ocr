@@ -1,7 +1,7 @@
 # Operations Runbook
 
 Status: development stage. Only the API process exists. Compose services, backups and
-recovery are added in Phase 8 and Phase 10.
+recovery are added in Phase 9 and Phase 11.
 
 ## Start / stop (development)
 
@@ -50,6 +50,11 @@ All variables use the `NGOCR_` prefix. See `.env.example`.
 | `NGOCR_EXTRACTION_DAY_FIRST` | `true` | Read numeric dates as DD/MM/YYYY; `false` reports dates valid both ways as ambiguous |
 | `NGOCR_EXTRACTION_MASK_AADHAAR` | `true` | Mask Aadhaar numbers to the last 4 digits in results and exports. Turn off only with a documented legal basis |
 | `NGOCR_EXTRACTION_MIN_EVIDENCE_CONFIDENCE` | 0.70 | Extracted values read from OCR below this confidence are routed to review |
+| `NGOCR_AUTH_TOKENS_FILE` | `<data_dir>/auth/tokens.json` | Hashed review tokens (`python -m newgen_ocr.auth`) |
+| `NGOCR_REVIEW_CALIBRATION_FILE` | unset | Calibration from `scripts/calibrate_review.py`; without one no value is verified |
+| `NGOCR_REVIEW_AUTO_ACCEPT` | `false` | Accept fully verified documents without a person (needs a calibration file) |
+| `NGOCR_REVIEW_ALLOW_SYNTHETIC_CALIBRATION` | `false` | Let production auto-accept with a synthetic calibration (not recommended) |
+| `NGOCR_REVIEW_REQUIRE_SECOND_PERSON` | `true` | The approver must not have corrected or confirmed values on the item |
 
 **Production startup fails** if the OpenCV build includes FFmpeg (the PyPI wheel) and
 `NGOCR_ENVIRONMENT=production`. Install the minimal source-built OpenCV wheel (ADR-0015).
@@ -68,8 +73,29 @@ data/derived/      manifest.json, pages/NNNN.png, text/NNNN.json per document
                    ocr/<engine>.json, ocr/comparison.json per OCR run
                    layout/<ocr_run>.json per layout run
                    extraction/<layout_run>.json per extraction result
+data/review/       items/<document>/<layout_run>.json (+ .r<N>.json earlier revisions),
+                   history.jsonl (hash-chained corrections and decisions), .lock
+data/auth/         tokens.json (hashes only, 0600)
 data/audit/        audit.jsonl
 ```
+
+### Review operations
+
+- **Tokens.** Create them with `python -m newgen_ocr.auth create --user <name> --role
+  viewer|reviewer|approver|admin [--expires-days N]` and hand each one over privately.
+  `list` shows ids, roles and expiry (never secrets). `revoke <id>` takes effect at once.
+- **Review page.** It is served at `/review`; links to an item are
+  `/review#<document_id>/<layout_run>`.
+- **History integrity.** Run `GET /api/v1/review/history/verify` (admin) after restores and
+  periodically. `valid: false` names the first bad event: restore `data/review/` from a
+  backup and investigate.
+- **Thresholds.** Run `make calibrate` to fit them (synthetic, for evaluation only), or
+  `python scripts/calibrate_review.py --dataset DIR` / `--from-reviews data` to fit them on
+  real labelled or approved documents. Review `reports/calibration/report.json` before
+  setting `NGOCR_REVIEW_CALIBRATION_FILE`. A calibration edited by hand is refused at
+  startup.
+- **Patterns.** Check `GET /api/v1/review/patterns` regularly. `verified_but_corrected`
+  entries are calibration failures; investigate them first.
 
 Files left in `quarantine/` or `staging/` while the service is idle are leftovers from a crash
 and can be deleted. A directory in `originals/` with no matching `derived/<id>/manifest.json`
@@ -100,7 +126,7 @@ is an orphan from a crash between the two commit steps. Report it before deletin
 | Extraction `unclassified` | No document type reached its score, or two were too close | See `classification.scores`/`evidence`; pass `document_type` explicitly, or add keywords/a template |
 | A value is `ambiguous`/`conflict` | Several candidates or readings; see `candidates` | Review; if systematic, add labels or sections to the schema |
 | Intermittent `RuntimeError: std::exception` from Paddle | Paddle called from more than one thread (fixed: ADR-0020 addendum) | Must not recur; report with the request ID |
-| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 8 moves processing to workers |
+| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 9 moves processing to workers |
 
 ## Logs
 
@@ -117,4 +143,4 @@ under `preprocessed/` after a crash can be deleted while the service is idle.
 
 ## Backups and recovery
 
-To be defined in Phase 5 (PostgreSQL dumps + `data/` volume snapshots) and drilled in Phase 10.
+To be defined in Phase 5 (PostgreSQL dumps + `data/` volume snapshots) and drilled in Phase 11.

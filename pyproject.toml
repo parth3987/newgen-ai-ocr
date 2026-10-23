@@ -17,8 +17,8 @@ dependencies = []
 where = ["src"]
 
 [tool.setuptools.package-data]
-# Built-in extraction schemas ship with the package (ADR-0026).
-newgen_ocr = ["py.typed", "extraction/schemas/*.json"]
+# Built-in extraction schemas (ADR-0026) and the review page (ADR-0028) ship with the package.
+newgen_ocr = ["py.typed", "extraction/schemas/*.json", "review/ui/*"]
 
 # ---------------------------------------------------------------- Ruff
 [tool.ruff]

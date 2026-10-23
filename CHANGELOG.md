@@ -4,6 +4,31 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 8: Confidence, verification and human review (2026-10-23)
+- `newgen_ocr/review/`: field-specific verification gates. A value is verified only when
+  it was extracted, the type is reliable, its page is clean, no check involving it failed,
+  the second OCR engine does not read a different value there, and its confidence reaches
+  a threshold calibrated for that field. OCR confidence alone never verifies a value.
+- Calibration: `scripts/calibrate_review.py` (`make calibrate`) fits per-field thresholds
+  (one-sided Wilson lower bound, type pooling with a per-field guard) on a calibration
+  split and measures them on a held-out test split. Sources: a seeded synthetic set
+  (`evaluation/calibration_corpus.py`), real labelled documents, or approved reviews.
+  Calibration files are hash-identified and bound to schema versions.
+- Review queue with priorities; claim/release; corrections (`set`/`clear`/`confirm`) with
+  reason codes, normalised and validated like extracted values; approval with four eyes
+  and acknowledged failing checks; rejection with reason codes; optimistic concurrency;
+  reviewed results re-validated and re-checked.
+- Hash-chained review history (actor, role, time, values, reason, comment) with a verify
+  endpoint; review steps audited without content; correction patterns (per field, reason,
+  type, character confusions, verified-but-corrected).
+- Source crops and page previews from the exact OCR image, with Aadhaar numbers blacked
+  out; a minimal review page at `/review` (no external assets, strict CSP).
+- `newgen_ocr/auth/`: local hashed bearer tokens with roles (viewer, reviewer, approver,
+  admin), expiry and revocation; `python -m newgen_ocr.auth`. Review endpoints require them.
+- Automatic acceptance off by default; production refuses a synthetic calibration.
+- No new dependencies. Implementation plan renumbered: persistence moves to Phase 9, the
+  full review application to Phase 10, deployment to Phase 11.
+
 ### Phase 7: Structured data extraction without an LLM (2026-10-23)
 - `newgen_ocr/extraction/`: rule and template classification; configurable JSON field
   schemas (built-in: GST invoice, receipt, bank statement, PAN card, Aadhaar card; custom via

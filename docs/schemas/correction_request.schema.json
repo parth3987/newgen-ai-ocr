@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "Change": {
+      "properties": {
+        "action": {
+          "default": "set",
+          "enum": [
+            "set",
+            "confirm",
+            "clear"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "column": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,47}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "comment": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,47}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CorrectionReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "record": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Record"
+        },
+        "table": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,47}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Table"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "title": "Change",
+      "type": "object"
+    },
+    "CorrectionReason": {
+      "enum": [
+        "confirmed",
+        "ocr_misread",
+        "wrong_value_selected",
+        "missed_value",
+        "value_not_present",
+        "ambiguity_resolved",
+        "conflict_resolved",
+        "normalisation_error",
+        "other"
+      ],
+      "title": "CorrectionReason",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "changes": {
+      "items": {
+        "$ref": "#/$defs/Change"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Changes",
+      "type": "array"
+    },
+    "expected_version": {
+      "title": "Expected Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "expected_version",
+    "changes"
+  ],
+  "title": "CorrectionRequest",
+  "type": "object"
+}

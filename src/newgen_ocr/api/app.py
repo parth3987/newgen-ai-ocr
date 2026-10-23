@@ -13,8 +13,18 @@ from newgen_ocr import __version__
 from newgen_ocr.api.body_limit import BodySizeLimitMiddleware
 from newgen_ocr.api.errors import register_error_handlers
 from newgen_ocr.api.middleware import request_context_middleware
-from newgen_ocr.api.routes import documents, extraction, health, layout, ocr, preprocessing
+from newgen_ocr.api.routes import (
+    documents,
+    extraction,
+    health,
+    layout,
+    ocr,
+    preprocessing,
+    review,
+    review_ui,
+)
 from newgen_ocr.audit import AuditLog
+from newgen_ocr.auth.tokens import TokenStore
 from newgen_ocr.config import Settings, get_settings
 from newgen_ocr.extraction.extract import Options
 from newgen_ocr.extraction.schema import SchemaRegistry
@@ -31,6 +41,10 @@ from newgen_ocr.ocr.script_detect import ScriptDetector
 from newgen_ocr.ocr.service import HANDWRITING_ENGINE, OcrService, ReviewPolicy
 from newgen_ocr.ocr.tesseract_engine import TesseractEngine
 from newgen_ocr.preprocessing.service import PreprocessingService
+from newgen_ocr.review.acceptance import Policy
+from newgen_ocr.review.calibration import load_calibration
+from newgen_ocr.review.service import ReviewService
+from newgen_ocr.review.store import ReviewStore
 from newgen_ocr.storage.local import DocumentStore
 
 logger = logging.getLogger(__name__)
@@ -132,15 +146,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.state.audit = audit
+    registry = SchemaRegistry(settings.extraction_schema_dir)
+    options = Options(
+        day_first=settings.extraction_day_first,
+        mask_aadhaar=settings.extraction_mask_aadhaar,
+    )
     app.state.extraction = ExtractionService(
         store,
         audit,
-        SchemaRegistry(settings.extraction_schema_dir),
-        Options(
-            day_first=settings.extraction_day_first,
-            mask_aadhaar=settings.extraction_mask_aadhaar,
-        ),
+        registry,
+        options,
         min_evidence_confidence=settings.extraction_min_evidence_confidence,
+    )
+    app.state.tokens = TokenStore(settings.auth_tokens_path)
+    calibration = load_calibration(settings.review_calibration_file)
+    if (
+        settings.review_auto_accept
+        and calibration is not None
+        and calibration.dataset.kind == "synthetic"
+        and settings.environment == "production"
+        and not settings.review_allow_synthetic_calibration
+    ):
+        raise ValueError(
+            "review_auto_accept in production with a synthetic calibration: calibrate on real "
+            "documents, or set review_allow_synthetic_calibration knowingly"
+        )
+    app.state.review = ReviewService(
+        store,
+        ReviewStore(settings.data_dir),
+        audit,
+        registry,
+        Policy(calibration=calibration, auto_accept=settings.review_auto_accept, options=options),
+        require_second_person=settings.review_require_second_person,
     )
 
     # Starlette runs the last-added middleware first: request context wraps the body limit.
@@ -155,6 +192,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(ocr.router)
     app.include_router(layout.router)
     app.include_router(extraction.router)
+    app.include_router(review.router)
+    app.include_router(review_ui.router)
 
     logger.info(
         "application created",

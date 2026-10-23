@@ -88,7 +88,7 @@ Update this file whenever a lock file changes.
 | yarl | 1.25.1 | Apache-2.0 |
 
 Full license texts are included in each package's distribution metadata and will be collected
-into the offline bundle (Phase 10).
+into the offline bundle (Phase 11).
 
 ### pypdfium2 bundled PDFium binary (reviewed 2026-10-22)
 

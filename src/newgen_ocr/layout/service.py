@@ -122,6 +122,28 @@ class _Page:
         return self._gray
 
 
+def ocr_page_image(
+    store: DocumentStore,
+    document_id: str,
+    page_number: int,
+    source: str | None,
+    rotation: int,
+    size: tuple[int | None, int | None],
+) -> np.ndarray:
+    """The exact image the OCR engine read for this page (OCR coordinates refer to it)."""
+    if (source or "").startswith("preprocessed:"):
+        profile = str(source).split(":", 1)[1]
+        path = store.preprocessed_image_path(document_id, profile, page_number)
+    else:
+        path = store.page_image_path(document_id, page_number)
+    with Image.open(path) as img:
+        image = np.asarray(img)
+    image = rotate_clockwise(image, rotation)
+    if (image.shape[1], image.shape[0]) != size:
+        raise AppError(ErrorCode.LAYOUT_FAILED, "Page image does not match the OCR run")
+    return image
+
+
 class LayoutService:
     def __init__(
         self,
@@ -194,18 +216,7 @@ class LayoutService:
         rotation: int,
         size: tuple[int | None, int | None],
     ) -> np.ndarray:
-        """The exact image the OCR engine read for this page."""
-        if (source or "").startswith("preprocessed:"):
-            profile = str(source).split(":", 1)[1]
-            path = self.store.preprocessed_image_path(document_id, profile, page_number)
-        else:
-            path = self.store.page_image_path(document_id, page_number)
-        with Image.open(path) as img:
-            image = np.asarray(img)
-        image = rotate_clockwise(image, rotation)
-        if (image.shape[1], image.shape[0]) != size:
-            raise AppError(ErrorCode.LAYOUT_FAILED, "Page image does not match the OCR run")
-        return image
+        return ocr_page_image(self.store, document_id, page_number, source, rotation, size)
 
     def overlay(self, document_id: str, ocr_run: str, page_number: int) -> bytes:
         """Inspection PNG of one analysed page."""

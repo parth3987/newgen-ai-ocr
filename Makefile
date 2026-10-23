@@ -16,7 +16,7 @@ UV_COMPILE     := uv pip compile --python-version $(PYTHON_VERSION) \
 GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.21.2
 REPORTS        := reports
 
-.PHONY: help venv lock models fonts eval-languages eval-handwriting eval-layout eval-extraction schemas lint format typecheck test security secrets licenses sbom bench eval check run clean
+.PHONY: help venv lock models fonts eval-languages eval-handwriting eval-layout eval-extraction calibrate schemas lint format typecheck test security secrets licenses sbom bench eval check run clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -84,6 +84,9 @@ eval-layout: ## Layout, tables, reading order and key-value pairs on the synthet
 
 eval-extraction: ## Classification, fields, tables and checks on the synthetic extraction set
 	$(BIN)/python scripts/evaluate_extraction.py --rebuild
+
+calibrate: ## Fit review thresholds on the synthetic calibration set (docs/REVIEW.md)
+	$(BIN)/python scripts/calibrate_review.py --rebuild
 
 schemas: ## Regenerate documented JSON Schemas and the document-type reference
 	$(BIN)/python scripts/generate_schemas.py

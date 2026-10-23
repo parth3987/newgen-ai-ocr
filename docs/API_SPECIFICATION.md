@@ -11,8 +11,10 @@ disabled (DECISIONS.md ADR-0005).
   hex id. Every response, including errors, carries `X-Request-ID`.
 - **Caching:** every response carries `Cache-Control: no-store` and
   `X-Content-Type-Options: nosniff`.
-- **Authentication:** not yet implemented (OD-6). Do not expose the service beyond a trusted
-  network until Phase 8 adds it.
+- **Authentication:** the review endpoints (`/api/v1/review/…`, `/api/v1/auth/whoami`)
+  require `Authorization: Bearer <token>` with a sufficient role (ADR-0027; REVIEW.md). The
+  other endpoints are not authenticated yet (OD-6): do not expose the service beyond a
+  trusted network until Phase 9 adds it.
 - **Request size:** bodies larger than `NGOCR_MAX_UPLOAD_BYTES` + 64 KiB are refused with
   `413 FILE_TOO_LARGE`, either immediately (from Content-Length) or as soon as the streamed
   body exceeds the limit.
@@ -62,6 +64,13 @@ Messages never contain document content or submitted values.
 | `UNKNOWN_DOCUMENT_TYPE` | 422 | No extraction schema with that id |
 | `EXTRACTION_NOT_FOUND` | 404 | No extraction result for that layout run |
 | `UNSUPPORTED_EXPORT` | 422 | The requested export part does not exist (e.g. unknown table) |
+| `UNAUTHENTICATED` | 401 | Missing, malformed, unknown, expired or revoked token (`WWW-Authenticate: Bearer`) |
+| `FORBIDDEN` | 403 | The token's role is not sufficient, or the four-eyes rule forbids approving |
+| `REVIEW_ITEM_NOT_FOUND` | 404 | No review item for that document and layout run |
+| `REVIEW_CONFLICT` | 409 | Stale `expected_version`, item assigned to someone else, not claimed, already decided, or extracted again since |
+| `REVIEW_INCOMPLETE` | 422 | Approval refused: undecided values, an invalid corrected record, or failing checks not acknowledged (with a comment) |
+| `INVALID_CORRECTION` | 422 | A corrected value fails its field's format or checksum rules, or the location does not exist |
+| `EVIDENCE_NOT_FOUND` | 404 | No source evidence for that field, candidate or cell (e.g. a missing value) |
 
 Pages that cannot be recognised reliably are **not** errors. They come back in the run with
 `status: "unsupported"` and/or `review.needs_review: true` (see below and LANGUAGE_SUPPORT.md).
@@ -483,3 +492,65 @@ table's records instead of the fields. `200` with `Content-Disposition: attachme
 | `checks[].status` | `passed`, `failed`, `not_applicable` (inputs missing: nothing assumed) |
 | `validation.issues[].code` | `missing_required`, `invalid_value`, `field_ambiguous`, `field_conflict`, `field_invalid`, `cell_ambiguous`, `cell_invalid` |
 | `review.reasons` | `document_type_unknown`, `document_type_ambiguous`, `required_field_missing`, `field_ambiguous`, `field_conflict`, `field_invalid`, `table_not_found`, `table_value_invalid`, `check_failed`, `low_confidence_evidence`, `source_needs_review` |
+
+## Verification and review (Phase 8)
+
+Every extraction result is queued for review when `POST …/extraction` stores it. Gates,
+calibration, workflow and reason codes: REVIEW.md. Every endpoint below needs a bearer
+token; the minimum role is given for each.
+
+| Endpoint | Role | Result |
+|---|---|---|
+| `GET /api/v1/auth/whoami` | viewer | `{"user", "role", "token_id"}` |
+| `GET /api/v1/review/policy` | viewer | `{"auto_accept", "require_second_person", "calibration"}` (the full calibration, or null) |
+| `GET /api/v1/review/items?status=&schema_id=&reason=&assigned_to=&limit=&offset=` | viewer | `{"total", "items": [ReviewItemSummary]}`, highest priority first. Default statuses: `pending`, `in_review` |
+| `GET /api/v1/review/items/{document_id}/{layout_run}` | viewer | `ReviewItem` |
+| `GET …/result` | viewer | `ReviewedResult`: record with corrections applied, validation, re-run checks, `unresolved` |
+| `GET …/history` | viewer | The item's `HistoryEvent`s, oldest first |
+| `GET …/crop?field=[&candidate=]` or `?table=&record=&column=` | viewer | PNG of the evidence area |
+| `GET …/pages/{page_number}[?field=]` | viewer | PNG of the page with the field's evidence (red) and other candidates (blue) |
+| `POST …/claim` `{"expected_version", "force"}` | reviewer | `ReviewItem` (`force`: admin only) |
+| `POST …/release` `{"expected_version"}` | reviewer | `ReviewItem` |
+| `POST …/corrections` `{"expected_version", "changes": [Change]}` | reviewer (the assignee) | `ReviewItem` |
+| `POST …/approve` `{"expected_version", "comment", "acknowledge_failed_checks"}` | approver | `ReviewItem` |
+| `POST …/reject` `{"expected_version", "reason", "comment"}` | reviewer | `ReviewItem` |
+| `GET /api/v1/review/patterns` | approver | `CorrectionPatterns` |
+| `GET /api/v1/review/history/verify` | admin | `{"valid", "events", "first_bad_seq", "message"}` |
+
+`…` is `/api/v1/review/items/{document_id}/{layout_run}`.
+
+**`Change`.** Give either `field`, or `table` (+ `record` and `column` for a cell). Then:
+- `action`: `set` (with `value` as printed), `clear`, or `confirm` (a whole table can only
+  be confirmed);
+- `reason`: a correction reason code, required except for `confirm`;
+- `comment`: required with `other`.
+
+### `ReviewItem` (abridged)
+
+```json
+{"document_id": "…", "layout_run": "auto", "schema_id": "gst_invoice",
+ "schema_version": "1.0", "revision": 1, "version": 3, "status": "in_review",
+ "priority": 46, "reasons": ["check_failed", "below_threshold", "table_check_failed"],
+ "assigned_to": "asha",
+ "assessment": {"calibration_id": "3f1c…", "auto_accept_enabled": false, "eligible": false,
+   "reasons": ["check_failed"],
+   "fields": [{"field": "grand_total", "type": "amount", "required": true,
+               "status": "extracted", "verified": false,
+               "reasons": ["check_failed"], "details": ["grand_total: failed grand_total"],
+               "confidence": 0.98, "threshold": 0.9, "calibration_key": "value:type:amount",
+               "engine": {"status": "agree", "engine": "tesseract",
+                          "readings": ["11900.00"], "text": "Grand Total: 11,900.00"},
+               "checks_passed": [], "checks_failed": ["grand_total"]}],
+   "tables": [{"table": "line_items", "status": "extracted", "verified": false,
+               "reasons": ["check_failed"], "checks_passed": ["line_amount"],
+               "checks_failed": ["items_total"], "cells_flagged": [],
+               "engine_disagreements": 0, "engine_disagreements_corroborated": 1}]},
+ "corrections": {"fields.grand_total": {"location": "fields.grand_total", "action": "set",
+   "value": "11800.00", "previous": "11900.00", "reason": "ocr_misread",
+   "actor": "asha", "at": "…", "seq": 7}},
+ "decision": null, "created_at": "…", "updated_at": "…"}
+```
+
+`status`: `pending`, `in_review`, `approved`, `rejected`, `auto_accepted`.
+`engine.status`: `agree`, `disagree`, `no_reading`, `unavailable`.
+

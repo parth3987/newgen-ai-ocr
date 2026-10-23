@@ -350,7 +350,7 @@ def _map_columns(spec: TableSpec, headers: dict[int, str]) -> dict[str, int]:
     return mapping
 
 
-def _normalize(
+def normalize_field(
     spec_type: FieldType, raw: str, options: Options, pattern: str | None = None
 ) -> Normalized:
     if spec_type is FieldType.DATE:
@@ -432,7 +432,7 @@ def from_tables(ctx: Context, spec: TableSpec) -> TableResult:
                 if cell is None:
                     values[column.name] = CellValue(status=FieldStatus.MISSING)
                     continue
-                norm = _normalize(column.type, cell.text, ctx.options)
+                norm = normalize_field(column.type, cell.text, ctx.options)
                 value = _cell_value(norm, cell.text, _cell_evidence(page, cell))
                 if cell.row_span > 1 and cell.row != row:
                     value.notes.append(
@@ -459,7 +459,7 @@ def from_tables(ctx: Context, spec: TableSpec) -> TableResult:
 def _candidate(
     ctx: Context, spec: FieldSpec, found: Found, method: CandidateMethod
 ) -> tuple[Candidate, list[str]]:
-    norm = _normalize(spec.type, found.raw, ctx.options, spec.pattern)
+    norm = normalize_field(spec.type, found.raw, ctx.options, spec.pattern)
     if norm.absent:
         return Candidate(
             value=None, raw=found.raw, method=method, evidence=[], errors=["absent"]

@@ -20,7 +20,12 @@ decisions and audit trail, model weights (integrity), credentials (DB, broker, A
 | Parser memory-safety bugs | Crafted PDF/TIFF exploits PDFium or libtiff | Patched versions (pip-audit gate, Pillow security override); format allowlist; process isolation with resource limits | Versions **implemented**; isolation **planned P6** (OD-12) |
 | Sensitive data in logs | Field values or text in logs/errors | Metadata-only logging policy; query strings not logged; validation errors never echo input; generic 500s | **Implemented** |
 | Log injection | Crafted `X-Request-ID` | Strict pattern; otherwise replaced | **Implemented** |
-| Unauthorized access | Unauthenticated API use, including document retrieval | API keys + review UI sessions (OD-6) | **Planned P3**. Until then, bind to localhost/trusted network only |
+| Unauthorized access | Unauthenticated API use, including document retrieval | Review endpoints: hashed bearer tokens with roles, expiry and revocation (ADR-0027); other endpoints: API keys + sessions (OD-6) | Review **implemented P8**; other endpoints **planned P9**: until then bind to localhost/trusted network only |
+| Unauthorised or self-approved corrections | A reviewer edits values and approves their own work; two reviewers overwrite each other | Roles per endpoint; only the assignee corrects; four-eyes approval (configurable); `expected_version` optimistic concurrency; corrections normalised and validated like extracted values | **Implemented P8** (ADR-0028) |
+| Tampering with review records | Editing or deleting a correction after the fact | Append-only history with a SHA-256 hash chain and `verify` endpoint; audit events per step; superseded revisions kept read-only | Chain **implemented P8**; off-host copy **planned P9** (OD-34) |
+| Unearned automatic acceptance | Values accepted on raw OCR confidence | Six gates incl. a per-field threshold from a hash-identified calibration file bound to schema versions; off by default; production refuses synthetic calibrations | **Implemented P8** (ADR-0028) |
+| Token theft from the review page | XSS reading the token from session storage | Strict CSP (`script-src 'self'`, no inline script, no external assets), text-only DOM insertion, `no-referrer`, `X-Frame-Options: DENY`; tokens never logged | **Implemented P8**; cookie sessions considered (OD-35) |
+| Personal identifiers in review crops | Aadhaar numbers visible in source crops | Aadhaar numbers the OCR read are blacked out in crops and previews when masking is on (best effort); history values masked | **Implemented P8** (OD-30 remains for OCR artefacts) |
 | Data at rest exposure | Read access to `data/` | Directories 0750, files 0640, originals 0440; quarantine files 0600; `no-store` on responses; uploads over 1 MiB spool to `TMPDIR` (OD-15) | Permissions **implemented**; volume encryption is a deployment control |
 | Bundled native libraries | OpenCV PyPI wheel loads FFmpeg, codecs and a vendor OpenSSL 1.1.1k build into the process | Unused by the app; production requires a minimal source-built OpenCV, enforced by a startup guard (ADR-0015) | Guard **implemented**; minimal build **planned P6** |
 | Supply chain | Compromised or typosquatted package | Hash-pinned locks with `--require-hashes`, pip-audit, license allowlist with per-version review, 14-day release age enforced by `--exclude-newer` (dated security overrides only), SBOM | **Implemented** (Python); containers **planned P6** |
@@ -31,13 +36,13 @@ decisions and audit trail, model weights (integrity), credentials (DB, broker, A
 | Spreadsheet formula injection | An OCR'd cell such as `=HYPERLINK(...)` executes when an export is opened | CSV: text starting with `= + - @`, tab or CR prefixed with `'`; XLSX: every text cell stored as a string, never a formula (tested) | **Implemented P7** (ADR-0026) |
 | Personal identifiers in outputs | Aadhaar numbers in extraction results and exports | Masked to the last 4 digits by default in values, raw text, candidates and evidence; identity fields marked `sensitive`; exports audited without content. OCR/layout artefacts still hold page text (OD-30) | **Implemented P7** |
 | LLM / hosted AI in extraction | Field extraction calling an external model | Rules and templates only; import scan and socket audit-hook test on the extraction package | **Implemented P7** (ADR-0026) |
-| Repudiation | Disputed upload/rejection | Audit events with request id, sha256 and outcome code (ADR-0014) | **Implemented P2** (actor is `anonymous` until auth) |
+| Repudiation | Disputed upload, rejection, correction or approval | Audit events with request id, sha256 and outcome code (ADR-0014); review steps carry the authenticated actor and role | **Implemented P2/P8** (non-review actions are `anonymous` until P9) |
 | Insecure code | Shell injection, unsafe deserialization | Bandit + Ruff `S` rules in the gate | **Implemented** |
 
 ## Security checks in the gate
 
 `make security` (Bandit, pip-audit on both locks), `make secrets` (Gitleaks), `make licenses`,
-`make sbom`. Container image scanning is to be added in Phase 8 (OD-5).
+`make sbom`. Container image scanning is to be added in Phase 9 (OD-5).
 
 Note: `pip-audit` queries public vulnerability databases. It runs in development/CI only,
 never on production hosts.
@@ -55,4 +60,4 @@ never on production hosts.
 On suspected compromise: isolate the host (network), preserve logs and the `data/` volume
 snapshot, rotate DB/broker/API credentials, review access logs by `request_id`, and verify
 model and package hashes against MODEL_INVENTORY and the lock files. The full procedure goes
-in OPERATIONS_RUNBOOK.md in Phase 10.
+in OPERATIONS_RUNBOOK.md in Phase 11.

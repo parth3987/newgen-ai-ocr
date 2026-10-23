@@ -17,6 +17,7 @@ from newgen_ocr.extraction import export
 from newgen_ocr.extraction.models import ExtractionResult
 from newgen_ocr.extraction.schema import DocumentSchema
 from newgen_ocr.extraction.service import ExtractionService
+from newgen_ocr.review.service import ReviewService
 from newgen_ocr.storage.local import DocumentStore
 
 router = APIRouter(prefix="/api/v1", tags=["extraction"])
@@ -78,8 +79,12 @@ def get_schema(request: Request, schema_id: SchemaId) -> DocumentSchema:
 def run_extraction(
     request: Request, document_id: DocumentId, body: ExtractionRequest
 ) -> ExtractionResult:
-    """Classify and extract. Replaces any earlier extraction of the same layout run."""
-    return _service(request).extract(document_id, body.layout_run, body.document_type)
+    """Classify and extract. Replaces any earlier extraction of the same layout run, and
+    queues the result for verification and review (``/api/v1/review/items/...``)."""
+    result = _service(request).extract(document_id, body.layout_run, body.document_type)
+    reviews: ReviewService = request.app.state.review
+    reviews.enqueue(result)
+    return result
 
 
 @router.get("/documents/{document_id}/extraction", response_model=list[str])

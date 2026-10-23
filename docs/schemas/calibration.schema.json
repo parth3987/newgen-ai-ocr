@@ -1,0 +1,325 @@
+{
+  "$defs": {
+    "CalibrationDataset": {
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "synthetic",
+            "real",
+            "reviews"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manifest Sha256"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "samples": {
+          "title": "Samples",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "samples"
+      ],
+      "title": "CalibrationDataset",
+      "type": "object"
+    },
+    "CalibrationEntry": {
+      "properties": {
+        "accepted": {
+          "default": 0,
+          "title": "Accepted",
+          "type": "integer"
+        },
+        "correct": {
+          "default": 0,
+          "title": "Correct",
+          "type": "integer"
+        },
+        "coverage": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coverage"
+        },
+        "errors_above_threshold": {
+          "default": 0,
+          "title": "Errors Above Threshold",
+          "type": "integer"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/CalibrationKind"
+        },
+        "level": {
+          "enum": [
+            "field",
+            "type"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "lower_bound": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lower Bound"
+        },
+        "observations": {
+          "title": "Observations",
+          "type": "integer"
+        },
+        "precision": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Precision"
+        },
+        "reliability": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReliabilityBin"
+          },
+          "title": "Reliability",
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/CalibrationStatus"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "level",
+        "status",
+        "observations"
+      ],
+      "title": "CalibrationEntry",
+      "type": "object"
+    },
+    "CalibrationKind": {
+      "enum": [
+        "value",
+        "missing"
+      ],
+      "title": "CalibrationKind",
+      "type": "string"
+    },
+    "CalibrationStatus": {
+      "enum": [
+        "calibrated",
+        "insufficient_data",
+        "target_not_met"
+      ],
+      "title": "CalibrationStatus",
+      "type": "string"
+    },
+    "ReliabilityBin": {
+      "properties": {
+        "correct": {
+          "title": "Correct",
+          "type": "integer"
+        },
+        "high": {
+          "title": "High",
+          "type": "number"
+        },
+        "low": {
+          "title": "Low",
+          "type": "number"
+        },
+        "n": {
+          "title": "N",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "low",
+        "high",
+        "n",
+        "correct"
+      ],
+      "title": "ReliabilityBin",
+      "type": "object"
+    },
+    "SplitEvaluation": {
+      "description": "Thresholds applied to a held-out test split, never used to choose them.",
+      "properties": {
+        "documents_eligible": {
+          "title": "Documents Eligible",
+          "type": "integer"
+        },
+        "documents_eligible_correct": {
+          "title": "Documents Eligible Correct",
+          "type": "integer"
+        },
+        "missing_verified": {
+          "title": "Missing Verified",
+          "type": "integer"
+        },
+        "missing_verified_correct": {
+          "title": "Missing Verified Correct",
+          "type": "integer"
+        },
+        "samples": {
+          "title": "Samples",
+          "type": "integer"
+        },
+        "values_total": {
+          "title": "Values Total",
+          "type": "integer"
+        },
+        "values_verified": {
+          "title": "Values Verified",
+          "type": "integer"
+        },
+        "values_verified_correct": {
+          "title": "Values Verified Correct",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "samples",
+        "documents_eligible",
+        "documents_eligible_correct",
+        "values_verified",
+        "values_verified_correct",
+        "values_total",
+        "missing_verified",
+        "missing_verified_correct"
+      ],
+      "title": "SplitEvaluation",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "confidence_level": {
+      "title": "Confidence Level",
+      "type": "number"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "dataset": {
+      "$ref": "#/$defs/CalibrationDataset"
+    },
+    "entries": {
+      "additionalProperties": {
+        "$ref": "#/$defs/CalibrationEntry"
+      },
+      "title": "Entries",
+      "type": "object"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "min_samples": {
+      "title": "Min Samples",
+      "type": "integer"
+    },
+    "notes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "pipeline_version": {
+      "title": "Pipeline Version",
+      "type": "string"
+    },
+    "schema_versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Schema Versions",
+      "type": "object"
+    },
+    "target_precision": {
+      "title": "Target Precision",
+      "type": "number"
+    },
+    "test": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SplitEvaluation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "id",
+    "created_at",
+    "pipeline_version",
+    "dataset",
+    "target_precision",
+    "confidence_level",
+    "min_samples",
+    "schema_versions",
+    "entries"
+  ],
+  "title": "Calibration",
+  "type": "object"
+}

@@ -299,3 +299,68 @@ What the table shows:
 
 **Not measured:** real documents (OD-28), unruled bank statements (OD-31), handwriting
 filled forms, multi-page invoices.
+
+## Review thresholds (Phase 8, 2026-10-23): synthetic
+
+Method: REVIEW.md "Calibration". Command: `make calibrate`. The result is
+`evaluation/calibration/synthetic-calibration.json` (id `b5e02f82953a3a03`).
+
+**The set.** 600 seeded synthetic documents, 120 of each type. They are separate from the
+extraction set the rules were tuned on, and every document draws its values, label wording,
+date format and layout offsets from its seed.
+- **Conditions:** clean 300 DPI (30%), office scan 200 DPI (40%), and heavily degraded
+  150 DPI (30%: ±2° skew, blur, strong noise, JPEG quality 45).
+- **Split:** thresholds were fitted on 400 documents and measured, unchanged, on 200
+  held-out documents.
+- **Pipeline:** the full offline pipeline with the second OCR engine (Tesseract)
+  cross-checking.
+
+| | Result |
+|---|---|
+| Classification | 600 / 600 correct |
+| Extracted values | 4,111, of which 6 wrong, all on heavily degraded pages. **All 6 were stopped by gates other than the threshold:** each page was flagged `low_quality`, and 3 values also disagreed with the second engine. Three were PAN-card names read as the PAN number **at OCR confidence 0.999** (OD-39): confidence alone would have accepted them |
+| Optional fields reported missing | 682, of which 10 were on the page. 8 were on flagged pages (now gated: `source_flagged`). 2 were on clean pages (a receipt GSTIN, a bank IFSC), where "missing" is not calibrated for those fields, so they are never verified |
+| Calibration entries | 35 of 68 calibrated (one-sided 95% Wilson bound ≥ 0.95, ≥ 50 values). Thresholds range from 0.93 to 0.98 |
+| Not calibrated (always reviewed) | IFSC and PAN values; GST amounts, GSTINs, due date and place of supply on invoices; all receipt fields, unless pooled by type. Absence of GSTINs, dates, names and receipt fields |
+| **Held-out test split: values verified** | **831 of 1,375 (60%), 831 correct** (lower bound 0.997) |
+| Held-out: absences verified | 89, all correct |
+| Held-out: documents eligible for automatic acceptance | **26 of 200 (13%), 26 fully correct** |
+
+Values verified on the test split, by type:
+
+| Type | Verified | Eligible documents |
+|---|---|---|
+| GST invoice | 66% | 3 of 40 |
+| Receipt | 51% | 1 of 40 |
+| Bank statement | 59% | 0 of 40 |
+| PAN card | 55% | 0 of 40 |
+| Aadhaar card | 63% | 22 of 40 |
+
+Why most documents still go to a person:
+- **Heavily degraded pages** are flagged `low_quality` by OCR, so nothing on them is
+  verified (by design).
+- **Some fields lack data:** too few values passed the other gates to calibrate them
+  (bank IFSC, invoice GSTINs, PAN numbers at 50 of the 52 needed).
+- **Engine disagreements:** Tesseract misreads (TI→T1, O→0) flag values.
+- **Table problems:** tables with structure issues block bank statements.
+
+**What this shows and what it does not.** It shows that the gates route every wrong value
+on this set to a person, and that thresholds fitted on one split hold on unseen documents
+of the same kind. It does **not** show that the thresholds discriminate on their own:
+- **No gated wrong values.** No value that passed the other gates was wrong, so each
+  threshold equals the lowest confidence observed (the reliability bins hold only correct
+  values).
+- **No real errors.** Real documents will have errors the synthetic set lacks: unfamiliar
+  layouts, stamps, handwriting, poor photographs.
+
+Thresholds for production must be fitted on real, labelled documents (OD-33), and automatic
+acceptance stays off until then.
+
+Defects found by this evaluation and fixed before reporting:
+- **Missing values on flagged pages.** "Missing" judgements ignored flagged pages; an absent
+  value on a poor scan was counted as reliable.
+- **Error-free fields blocked from pooling.** A field with fewer values than the bound
+  needs, but no error, was marked `target_not_met` and blocked from type pooling. It now
+  counts as `insufficient_data`.
+- **Line matching against the second engine.** The cross-check compared whole lines,
+  which misread Tesseract's merged multi-column lines. It now uses word boxes.

@@ -48,6 +48,13 @@ HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.UNKNOWN_DOCUMENT_TYPE: 422,
     ErrorCode.EXTRACTION_NOT_FOUND: 404,
     ErrorCode.UNSUPPORTED_EXPORT: 422,
+    ErrorCode.UNAUTHENTICATED: 401,
+    ErrorCode.FORBIDDEN: 403,
+    ErrorCode.REVIEW_ITEM_NOT_FOUND: 404,
+    ErrorCode.REVIEW_CONFLICT: 409,
+    ErrorCode.REVIEW_INCOMPLETE: 422,
+    ErrorCode.INVALID_CORRECTION: 422,
+    ErrorCode.EVIDENCE_NOT_FOUND: 404,
 }
 
 _CODE_FOR_HTTP_STATUS = {
@@ -76,7 +83,10 @@ def error_response(request: Request, status_code: int, code: str, message: str) 
 async def _app_error_handler(request: Request, exc: Exception) -> JSONResponse:
     err = cast(AppError, exc)
     logger.info("application error", extra={"error_code": err.code.value})
-    return error_response(request, HTTP_STATUS[err.code], err.code, err.message)
+    response = error_response(request, HTTP_STATUS[err.code], err.code, err.message)
+    if err.code is ErrorCode.UNAUTHENTICATED:
+        response.headers["WWW-Authenticate"] = "Bearer"
+    return response
 
 
 async def _http_error_handler(request: Request, exc: Exception) -> JSONResponse:
