@@ -25,6 +25,7 @@ from PIL import Image
 
 from newgen_ocr.api.app import create_app
 from newgen_ocr.config import Settings
+from newgen_ocr.evaluation.client import authorized
 from newgen_ocr.evaluation.layout_corpus import build, load_manifest
 from newgen_ocr.evaluation.layout_metrics import (
     furniture_scores,
@@ -66,7 +67,7 @@ def main() -> int:
         log_level="WARNING",
         _env_file=None,
     )
-    client = TestClient(create_app(settings))
+    client = authorized(TestClient(create_app(settings)))
     rows: list[dict[str, Any]] = []
     for sample in load_manifest(CORPUS):
         if not str(sample["id"]).startswith(args.only):

@@ -1,7 +1,8 @@
 """Local bearer tokens with roles (ADR-0027).
 
-Tokens look like ``ngocr_<id>_<secret>``. Only a SHA-256 hash of the secret is stored, in a
-JSON file managed with ``python -m newgen_ocr.auth``. The secret is 256 bits from
+Tokens look like ``ngocr_<id>_<secret>``. Only a SHA-256 hash of the secret is stored: in
+PostgreSQL in service mode (``newgen_ocr.auth.db``), otherwise in a JSON file; both are
+managed with ``python -m newgen_ocr.auth``. The secret is 256 bits from
 ``secrets``, so a fast hash is sufficient (nothing to brute-force); comparison is constant
 time. The file is re-read when it changes, so revocations apply without a restart.
 """
@@ -15,6 +16,7 @@ import os
 import re
 import secrets
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -26,7 +28,8 @@ _TOKEN = re.compile(r"^ngocr_([0-9a-f]{12})_([A-Za-z0-9_-]{43})$")
 
 
 class Role(StrEnum):
-    VIEWER = "viewer"  # read the queue, items, crops and history
+    SUBMITTER = "submitter"  # integrations: upload, and read or re-run their own documents
+    VIEWER = "viewer"  # read every document and result, the review queue and history
     REVIEWER = "reviewer"  # + claim, correct, confirm, reject
     APPROVER = "approver"  # + approve (never their own corrections)
     ADMIN = "admin"  # + reassign, verify the history chain
@@ -100,21 +103,10 @@ class TokenStore:
     def create(self, user: str, role: Role, expires_days: int | None = None) -> str:
         """Add a token and return it. The token is shown once and never stored."""
         data = self.load().model_copy(deep=True)
-        token_id = secrets.token_hex(6)
-        secret = secrets.token_urlsafe(32)
-        now = datetime.now(tz=UTC)
-        data.tokens.append(
-            TokenRecord(
-                id=token_id,
-                user=user,
-                role=role,
-                sha256=_digest(secret),
-                created_at=now,
-                expires_at=now + timedelta(days=expires_days) if expires_days else None,
-            )
-        )
+        token, record = new_token(user, role, expires_days)
+        data.tokens.append(record)
         self._save(data)
-        return f"ngocr_{token_id}_{secret}"
+        return token
 
     def revoke(self, token_id: str) -> bool:
         data = self.load().model_copy(deep=True)
@@ -125,21 +117,46 @@ class TokenStore:
                 return True
         return False
 
+    def find(self, token_id: str) -> TokenRecord | None:
+        return next((r for r in self.load().tokens if r.id == token_id), None)
+
     def authenticate(self, token: str | None) -> Principal | AuthFailure:
-        if not token:
-            return AuthFailure.MISSING
-        match = _TOKEN.fullmatch(token)
-        if match is None:
-            return AuthFailure.MALFORMED
-        token_id, secret = match.groups()
-        record = next((r for r in self.load().tokens if r.id == token_id), None)
-        if record is None or not hmac.compare_digest(record.sha256, _digest(secret)):
-            return AuthFailure.UNKNOWN
-        if record.revoked_at is not None:
-            return AuthFailure.REVOKED
-        if record.expires_at is not None and record.expires_at <= datetime.now(tz=UTC):
-            return AuthFailure.EXPIRED
-        return Principal(user=record.user, role=record.role, token_id=record.id)
+        return authenticate(token, self.find)
+
+
+def new_token(user: str, role: Role, expires_days: int | None) -> tuple[str, TokenRecord]:
+    """A fresh token and the record to store for it (the token itself is never stored)."""
+    token_id = secrets.token_hex(6)
+    secret = secrets.token_urlsafe(32)
+    now = datetime.now(tz=UTC)
+    record = TokenRecord(
+        id=token_id,
+        user=user,
+        role=role,
+        sha256=_digest(secret),
+        created_at=now,
+        expires_at=now + timedelta(days=expires_days) if expires_days else None,
+    )
+    return f"ngocr_{token_id}_{secret}", record
+
+
+def authenticate(
+    token: str | None, find: Callable[[str], TokenRecord | None]
+) -> Principal | AuthFailure:
+    if not token:
+        return AuthFailure.MISSING
+    match = _TOKEN.fullmatch(token)
+    if match is None:
+        return AuthFailure.MALFORMED
+    token_id, secret = match.groups()
+    record = find(token_id)
+    if record is None or not hmac.compare_digest(record.sha256, _digest(secret)):
+        return AuthFailure.UNKNOWN
+    if record.revoked_at is not None:
+        return AuthFailure.REVOKED
+    if record.expires_at is not None and record.expires_at <= datetime.now(tz=UTC):
+        return AuthFailure.EXPIRED
+    return Principal(user=record.user, role=record.role, token_id=record.id)
 
 
 def token_id_of(token: str | None) -> str | None:

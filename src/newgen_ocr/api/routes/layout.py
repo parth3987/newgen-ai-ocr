@@ -1,21 +1,29 @@
 """Layout, reading order, tables and key-value pairs derived from a stored OCR run (ADR-0025).
 
-Runs synchronously in the request for now (ADR-0012). No authentication yet (OD-6).
+Local mode runs in the request (ADR-0012); service mode queues layout and extraction as a
+job (``202``; ADR-0029). Every endpoint needs a bearer token; submitters reach only their
+own documents.
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Request, Response
+from fastapi import APIRouter, Depends, Path, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from newgen_ocr.api.auth import principal, require_document
+from newgen_ocr.api.routes.jobs import QUEUED, IdempotencyKey, accepted, jobs_service
+from newgen_ocr.auth.tokens import Principal
+from newgen_ocr.errors import AppError, ErrorCode
+from newgen_ocr.jobs.models import JobParams, StageRequest
 from newgen_ocr.layout.models import LayoutRun
 from newgen_ocr.layout.service import LayoutService
 from newgen_ocr.ocr.models import EngineInfo
 from newgen_ocr.storage.local import DocumentStore
 
-router = APIRouter(prefix="/api/v1", tags=["layout"])
+router = APIRouter(prefix="/api/v1", tags=["layout"], dependencies=[Depends(require_document())])
 
 DocumentId = Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")]
 RunName = Annotated[str, Path(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
@@ -54,9 +62,27 @@ def layout_status(request: Request) -> LayoutStatus:
     )
 
 
-@router.post("/documents/{document_id}/layout", status_code=201, response_model=LayoutRun)
-def run_layout(request: Request, document_id: DocumentId, body: LayoutRequest) -> LayoutRun:
-    """Analyse layout and tables. Replaces any earlier layout of the same OCR run."""
+@router.post(
+    "/documents/{document_id}/layout", status_code=201, response_model=LayoutRun, responses=QUEUED
+)
+def run_layout(
+    request: Request,
+    document_id: DocumentId,
+    body: LayoutRequest,
+    who: Annotated[Principal, Depends(principal)],
+    idempotency_key: IdempotencyKey = None,
+) -> LayoutRun | JSONResponse:
+    """Analyse layout and tables. Replaces any earlier layout of the same OCR run. In service
+    mode the job also re-runs extraction on the new layout."""
+    jobs = jobs_service(request)
+    if jobs is not None:
+        if body.ocr_run not in ("auto", "paddle", "tesseract"):
+            raise AppError(
+                ErrorCode.OCR_RUN_NOT_FOUND, "Jobs use the auto, paddle or tesseract run"
+            )
+        params = JobParams(engine=body.ocr_run)
+        stage = StageRequest(kind="layout", params=params)
+        return accepted(jobs.submit_stage(document_id, stage, who, idempotency_key))
     return _service(request).analyze(document_id, body.ocr_run)
 
 

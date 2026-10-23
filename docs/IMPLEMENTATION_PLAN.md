@@ -274,37 +274,56 @@ Open: real-document calibration (OD-33), an off-host history copy (OD-34), sessi
 (OD-35), token rate limiting (OD-36), table text cells against the second engine (OD-37),
 and corrections across re-extraction (OD-38).
 
-## Phase 9: Persistence, jobs, containers and authentication (next)
+## Phase 9: Database, background jobs and APIs (**complete**, 2026-10-23)
 
-Planned work:
-- **Database:** a PostgreSQL schema with Alembic migrations, covering documents, pages,
-  preprocessing, OCR, layout and extraction runs, review items and history, and audit
-  events.
-- **Workers:** Valkey + Celery. Ingestion, preprocessing, OCR, layout, extraction and review
-  queueing move to idempotent tasks keyed on `(document_id, stage, input_hash)`. Parsing and
-  OCR run in workers under resource limits (OD-12), with one Paddle thread per worker
-  process.
-- **Containers:** Docker Compose (api/worker/postgres/valkey, internal network) with the
-  **minimal source-built OpenCV wheel** (ADR-0015), `tesseract-ocr` and the verified
-  `models/`.
-- **Readiness checks** for the database, broker and OCR/layout models.
-- **Authentication on every endpoint:** database-backed API keys and session sign-in
-  (OD-6, OD-35).
-- **Review history** in append-only storage (OD-34).
+Defined by the owner on 2026-10-23. The owner's choices:
+- metadata and results in PostgreSQL, files on the volume;
+- plain psycopg with the OS libpq;
+- database tokens with roles on every endpoint, plus a `submitter` role.
 
-Acceptance:
-- the compose stack starts from scratch;
-- migrations apply and roll back;
-- upload → 202 → jobs produce the same results as Phase 8;
-- retries are idempotent;
-- integration tests run on real Postgres/Valkey;
-- the container scan is clean (OD-5);
-- production starts with the minimal OpenCV build and no network.
+Application container images, the container scan (OD-5) and the minimal OpenCV build move
+to Phase 11. Session sign-in moves to Phase 10 (OD-35).
+
+Delivered (ADR-0029):
+- **Database:** `newgen_ocr/db/`, with models, a hand-written initial migration, SQL stores
+  for review, audit and tokens, and `python -m newgen_ocr.db`.
+- **Jobs:** `newgen_ocr/jobs/`, with the repository (claims, leases, reaper), runner,
+  service and Celery app; `python -m newgen_ocr.worker`; `python -m newgen_ocr.jobs reap`.
+- **Shared builder:** `newgen_ocr/services.py`, used by the API and the workers.
+- **API:** authentication on every router, document listing and status, job endpoints, and
+  `202` uploads and stage runs in service mode.
+- **Services:** `deploy/compose.yaml` and `deploy/compose.dev.yaml`; `make services-up`.
+
+| Acceptance criterion | Evidence | Status |
+|---|---|---|
+| Asynchronous jobs work end to end | Upload → `202` → pipeline → results, the review item in PostgreSQL, and audit events naming the submitter (`test_upload_runs_the_whole_pipeline`). Stage jobs (`test_stage_jobs_rerun_part_of_the_pipeline`). The real worker over Valkey with real models (`test_jobs_survive_a_killed_worker`) | Met |
+| Worker restarts do not corrupt job state | A real worker is SIGKILLed during OCR, and a new worker finishes the job on attempt 2, with each stage completed once (`test_jobs_survive_a_killed_worker`). A crash mid-ingest with a half-staged document and a moved original is recovered from clean state, and the dead worker can no longer write (`test_worker_crash_mid_ingest_is_recovered`). Duplicate messages run a job once (`test_one_active_job_per_document`) | Met |
+| Failed jobs are observable and recoverable | `status`, `error_code`, a content-free `error_message`, `GET /jobs?status=failed` and per-job events. Transient errors retry with backoff, then fail; `retry` resumes after completed stages. Deterministic errors fail at once, and rejected uploads cannot be retried. `WORKER_LOST` after the last attempt, recoverable by retry. Lost messages are re-sent (tests) | Met |
+| API schemas and error responses are documented | API_SPECIFICATION.md: the Jobs section, modes, pagination, idempotency and 8 new error codes; OpenAPI at `/api/v1/openapi.json` | Met |
+| No credentials or document contents are exposed in ordinary logs | `SecretStr` URLs logged as host/port/database only; `hide_parameters`; content-free job errors. A log test checks the database password, document text and token. The real worker's log contains neither password | Met |
+
+Tasks:
+- the schema and migrations (upgrade, downgrade and re-upgrade run; a test compares the
+  migration with the models);
+- entities for documents, pages, jobs, extraction, review and audit;
+- upload, status, results and review endpoints;
+- Celery workers on Valkey;
+- retry limits, idempotency keys and failure handling;
+- cancellation and bounded concurrency (admission limits, worker concurrency);
+- duplicate submissions (key replay, content dedupe, one active job per document);
+- pagination and access control (tests);
+- private database and queue ports (an internal network with no published ports).
+
+Open:
+- the PostgreSQL 17.11 update (OD-40);
+- TLS if the services leave the host (OD-41);
+- backups and retention (OD-42);
+- libpq on hosts (OD-44).
 
 ## Phase 10: Full review application
 
-A React + TypeScript review application served locally (no CDN assets). It replaces the
-minimal `/review` page:
+A React + TypeScript review application served locally (no CDN assets), with session
+sign-in (OD-35). It replaces the minimal `/review` page:
 - page viewer with layout overlays and side-by-side engine readings;
 - keyboard-driven correction and batch confirmation;
 - reviewer workload and correction-pattern dashboards.
@@ -312,6 +331,10 @@ minimal `/review` page:
 ## Phase 11: Offline deployment and hardening
 
 Planned work:
+- application container images (API and worker) with the **minimal source-built OpenCV
+  wheel** (ADR-0015), `tesseract-ocr`, the OS libpq and the verified `models/`, joining
+  the internal network of `deploy/compose.yaml`; a container scan (OD-5); readiness that
+  also covers the OCR and layout models;
 - offline bundle (wheels, images, models, SBOM, hashes);
 - host-level egress blocking, verified by test;
 - backups and a restore drill;

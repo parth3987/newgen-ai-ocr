@@ -14,9 +14,18 @@ UV_COMPILE     := uv pip compile --python-version $(PYTHON_VERSION) \
                   --exclude-newer $(EXCLUDE_NEWER) --override overrides.txt \
                   $(foreach o,$(SECURITY_OVERRIDES),--exclude-newer-package $(o))
 GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.21.2
+# PostgreSQL and Valkey for service mode (ADR-0029); dev override publishes on 127.0.0.1.
+ENGINE         := $(shell command -v podman >/dev/null 2>&1 && echo podman || echo docker)
+COMPOSE        := $(ENGINE) compose -f deploy/compose.yaml -f deploy/compose.dev.yaml
+SECRETS        := deploy/secrets
+# Service-mode tests run against these (a throwaway database per run; Valkey db 15).
+# Without the secrets files they are skipped, and pytest reports them as skipped.
+TEST_SERVICES  := if [ -f $(SECRETS)/postgres_password ]; then \
+                  export NGOCR_TEST_DATABASE_URL="postgresql+psycopg://ngocr:$$(cat $(SECRETS)/postgres_password)@127.0.0.1:55432/ngocr"; \
+                  export NGOCR_TEST_BROKER_URL="redis://:$$(cat $(SECRETS)/valkey_password)@127.0.0.1:56379/15"; fi;
 REPORTS        := reports
 
-.PHONY: help venv lock models fonts eval-languages eval-handwriting eval-layout eval-extraction calibrate schemas lint format typecheck test security secrets licenses sbom bench eval check run clean
+.PHONY: help services-secrets services-up services-down venv lock models fonts eval-languages eval-handwriting eval-layout eval-extraction calibrate schemas lint format typecheck test security secrets licenses sbom bench eval check run clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -47,8 +56,20 @@ lint: ## Ruff format check + lint
 typecheck: ## mypy (strict)
 	$(BIN)/mypy
 
-test: ## pytest with coverage gate
-	$(BIN)/pytest --cov
+test: ## pytest with coverage gate (service-mode tests need `make services-up`)
+	@$(TEST_SERVICES) $(BIN)/pytest --cov
+
+services-secrets: ## Create random PostgreSQL and Valkey passwords in deploy/secrets/ (once)
+	@mkdir -p -m 700 $(SECRETS)
+	@for name in postgres_password valkey_password; do \
+		[ -f $(SECRETS)/$$name ] || (umask 077; $(BIN)/python -c "import secrets; print(secrets.token_hex(24), end='')" > $(SECRETS)/$$name); \
+	done
+
+services-up: services-secrets ## Start PostgreSQL and Valkey (loopback only) for development and tests
+	$(COMPOSE) up -d --wait
+
+services-down: ## Stop PostgreSQL and Valkey (data volumes are kept)
+	$(COMPOSE) down
 
 security: ## Bandit + dependency vulnerability audit
 	$(BIN)/bandit -q -c pyproject.toml -r src scripts
@@ -91,7 +112,7 @@ calibrate: ## Fit review thresholds on the synthetic calibration set (docs/REVIE
 schemas: ## Regenerate documented JSON Schemas and the document-type reference
 	$(BIN)/python scripts/generate_schemas.py
 
-check: lint typecheck test security licenses ## Full local acceptance gate (plus `make secrets`)
+check: lint typecheck services-up test security licenses ## Full local acceptance gate (plus `make secrets`)
 
 run: ## Run the API on 127.0.0.1:8000 with console logs
 	mkdir -p data

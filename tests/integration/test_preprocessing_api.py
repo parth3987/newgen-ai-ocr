@@ -15,8 +15,10 @@ from PIL import Image
 
 from newgen_ocr.api.app import create_app
 from newgen_ocr.config import Settings
+from newgen_ocr.evaluation.client import authorized
 from tests.fixtures.builders import PARAGRAPH, PageSpec, build_pdf
 from tests.fixtures.pages import Gray, gaussian_noise, rotate, text_page
+from tests.fixtures.services import PLACEHOLDER_URLS
 
 DOCS = "/api/v1/documents"
 # The scan is A4-proportioned; placing it on a Letter page would distort its skew angle.
@@ -33,7 +35,7 @@ def pp_settings(tmp_path: Path) -> Settings:
 @pytest.fixture
 def client(pp_settings: Settings) -> Iterator[TestClient]:
     with TestClient(create_app(pp_settings), raise_server_exceptions=False) as c:
-        yield c
+        yield authorized(c)
 
 
 def _jpeg(page: Gray) -> bytes:
@@ -185,6 +187,8 @@ def test_audit_records_preprocessing(client: TestClient, pp_settings: Settings) 
 
 
 def test_production_refuses_pypi_opencv(tmp_path: Path) -> None:
-    settings = Settings(environment="production", data_dir=tmp_path, _env_file=None)  # type: ignore[call-arg]
+    settings = Settings(  # type: ignore[call-arg]
+        environment="production", data_dir=tmp_path, _env_file=None, **PLACEHOLDER_URLS
+    )
     with pytest.raises(RuntimeError, match="ADR-0015"):
         create_app(settings)

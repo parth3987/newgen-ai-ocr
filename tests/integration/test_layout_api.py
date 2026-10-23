@@ -13,6 +13,7 @@ from PIL import Image
 
 from newgen_ocr.api.app import create_app
 from newgen_ocr.config import Settings
+from newgen_ocr.evaluation.client import authorized
 from newgen_ocr.evaluation.layout_corpus import table_page, table_specs
 from newgen_ocr.layout.models import RegionType
 from newgen_ocr.layout.service import LayoutService
@@ -48,7 +49,7 @@ def layout_settings(tmp_path: Path) -> Settings:
 @pytest.fixture
 def client(layout_settings: Settings) -> Iterator[TestClient]:
     with TestClient(create_app(layout_settings), raise_server_exceptions=False) as c:
-        yield c
+        yield authorized(c)
 
 
 def _png(image: np.ndarray) -> bytes:

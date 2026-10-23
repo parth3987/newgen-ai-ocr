@@ -43,6 +43,7 @@ from fastapi.testclient import TestClient
 from newgen_ocr.api.app import create_app
 from newgen_ocr.config import Settings
 from newgen_ocr.evaluation.calibration_corpus import build, load_manifest
+from newgen_ocr.evaluation.client import authorized
 from newgen_ocr.extraction.models import ExtractionResult
 from newgen_ocr.extraction.schema import SchemaRegistry
 from newgen_ocr.review.calibration import (
@@ -89,7 +90,7 @@ def run_pipeline(
         _env_file=None,
     )
     app = create_app(settings)
-    client = TestClient(app)
+    client = authorized(TestClient(app))
     review: ReviewService = app.state.review
     for n, sample in enumerate(samples, start=1):
         if sample.id in done:

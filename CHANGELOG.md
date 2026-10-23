@@ -4,6 +4,58 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 9: Database, background jobs and APIs (2026-10-23)
+- **Service mode** (ADR-0029), used when `NGOCR_DATABASE_URL` and `NGOCR_BROKER_URL` are
+  set; staging and production require it. Local mode is unchanged, for development.
+- **PostgreSQL 17** schema, managed only by Alembic migrations (`python -m newgen_ocr.db
+  upgrade|downgrade|current`). It holds:
+  - API tokens;
+  - documents and pages;
+  - jobs and job events;
+  - extraction results (JSONB);
+  - review items, revisions and the hash-chained history;
+  - audit events.
+  The history and audit tables are append-only (trigger). Files stay on the data volume.
+- **Background jobs** with Celery on Valkey (`python -m newgen_ocr.worker`):
+  - Uploads return `202` with a job that runs ingest, preprocessing, OCR, layout,
+    extraction and review queueing. Stage endpoints queue `ocr`, `layout`, `extraction`
+    or `preprocessing` jobs, which also run the stages after them.
+  - Atomic claims and heartbeat-renewed leases; late acknowledgement and requeue when a
+    worker dies.
+  - A reaper in every worker requeues jobs from dead workers and re-sends lost messages.
+  - Completed stages are skipped on retry.
+  - Deterministic errors fail at once; unexpected errors retry with backoff up to
+    `NGOCR_JOB_MAX_ATTEMPTS`, then fail with the code recorded.
+  - Cancellation between stages; retry of failed or cancelled jobs; a per-job event log.
+- **Duplicates.** `Idempotency-Key` replay (with request fingerprints), per-user content
+  dedupe (`force` to override), and one active job per document (unique index).
+- **Bounded work.** Queue and per-user admission limits (`503 QUEUE_FULL`,
+  `429 TOO_MANY_JOBS`); worker concurrency setting; prefetch of one.
+- **Access.**
+  - Bearer tokens on every endpoint except health and the static review page.
+  - Tokens are stored in PostgreSQL in service mode.
+  - New `submitter` role that reaches only its own documents and jobs.
+  - Every audit event names the authenticated user, including actions workers take for
+    them.
+- **New endpoints:**
+  - `GET /api/v1/documents` (paginated), `GET /api/v1/documents/{id}/status`;
+  - `POST /api/v1/documents/{id}/jobs`;
+  - `GET /api/v1/jobs`, `GET /api/v1/jobs/{id}`, `GET /api/v1/jobs/{id}/events`;
+  - `POST /api/v1/jobs/{id}/cancel`, `POST /api/v1/jobs/{id}/retry`.
+  New error codes: `JOB_NOT_FOUND`, `JOB_CONFLICT`, `JOB_ALREADY_ACTIVE`,
+  `IDEMPOTENCY_CONFLICT`, `QUEUE_FULL`, `TOO_MANY_JOBS`, `WORKER_LOST`,
+  `DOCUMENT_NOT_READY`. Readiness checks the database, schema version and broker.
+- **`deploy/compose.yaml`.** PostgreSQL 17.10 and Valkey 8.1.10, pinned by digest, on an
+  internal network with no published ports and passwords from secret files.
+  `deploy/compose.dev.yaml` publishes them on 127.0.0.1 for development.
+  New Makefile targets: `make services-up` and `make services-down`.
+- **Logs.** Database and broker URLs are secrets; bound SQL values are hidden; job errors
+  never hold exception text.
+- **New dependencies:** SQLAlchemy, Alembic, psycopg (with the OS libpq) and Celery with
+  redis-py; 18 packages in all, licence-reviewed (THIRD_PARTY_NOTICES.md).
+- **Tests:** service-mode tests run on real PostgreSQL and Valkey, including a test that
+  kills a real worker mid-job. Version 0.9.0.
+
 ### Phase 8: Confidence, verification and human review (2026-10-23)
 - `newgen_ocr/review/`: field-specific verification gates. A value is verified only when
   it was extracted, the type is reliable, its page is clean, no check involving it failed,

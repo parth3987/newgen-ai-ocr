@@ -9,11 +9,15 @@ from __future__ import annotations
 import json
 import os
 import threading
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
 from newgen_ocr.logging_config import request_id_var
+
+# The authenticated user of the current request or job (set by the API and the worker).
+actor_var: ContextVar[str | None] = ContextVar("actor", default=None)
 
 
 class AuditEvent(StrEnum):
@@ -40,20 +44,27 @@ AuditValue = str | int | bool | None
 
 
 class AuditLog:
+    """File sink (local mode). ``DbAuditLog`` (``newgen_ocr.db.audit``) is the service-mode
+    sink with the same interface."""
+
     def __init__(self, data_dir: Path) -> None:
         self.path = data_dir / "audit" / "audit.jsonl"
         self._lock = threading.Lock()
 
-    def record(self, event: AuditEvent, **fields: AuditValue) -> None:
-        entry: dict[str, AuditValue] = {
+    @staticmethod
+    def entry(event: AuditEvent, fields: dict[str, AuditValue]) -> dict[str, AuditValue]:
+        return {
             "ts": datetime.now(tz=UTC).isoformat(),
             "event": event.value,
             "request_id": request_id_var.get(),
-            # Review actions pass the authenticated user; other endpoints are not
-            # authenticated yet (DECISIONS.md OD-6).
-            "actor": "anonymous",
+            # The authenticated user, when the caller passes it; otherwise the current
+            # request's principal (set by the API's authentication dependency).
+            "actor": actor_var.get() or "system",
             **fields,
         }
+
+    def record(self, event: AuditEvent, **fields: AuditValue) -> None:
+        entry = self.entry(event, fields)
         line = (json.dumps(entry, ensure_ascii=False) + "\n").encode()
         with self._lock:
             self.path.parent.mkdir(mode=0o750, parents=True, exist_ok=True)

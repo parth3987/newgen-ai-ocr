@@ -1,0 +1,67 @@
+# PostgreSQL and Valkey for service mode (ADR-0029).
+#
+# Neither publishes a port: both are reachable only on the internal "backend" network,
+# which has no route outside the host (internal: true). The API and workers join that
+# network (their containers arrive in Phase 11). For local development and tests,
+# deploy/compose.dev.yaml publishes them on 127.0.0.1 only.
+#
+# Passwords are read from files under deploy/secrets/ (git-ignored; `make services-secrets`
+# creates random ones). Images are pinned by digest; see docs/DECISIONS.md OD-40.
+name: newgen-ocr
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_USER: ngocr
+      POSTGRES_DB: ngocr
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      # SCRAM only; no trust or md5 for network connections.
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
+    secrets: [postgres_password]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ngocr -d ngocr"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  valkey:
+    image: docker.io/valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
+    # The password goes into a config file, not the command line (visible in `ps`).
+    # Append-only persistence keeps queued messages across a restart; the reaper
+    # re-dispatches anything lost anyway (the database is the source of truth).
+    entrypoint:
+      - sh
+      - -c
+      - |
+        umask 077
+        printf 'requirepass "%s"\n' "$$(cat /run/secrets/valkey_password)" > /tmp/valkey.conf
+        exec valkey-server /tmp/valkey.conf --appendonly yes --dir /data --protected-mode yes
+    secrets: [valkey_password]
+    volumes:
+      - valkey-data:/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a \"$$(cat /run/secrets/valkey_password)\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+networks:
+  backend:
+    internal: true
+
+volumes:
+  postgres-data:
+  valkey-data:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  valkey_password:
+    file: ./secrets/valkey_password

@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from newgen_ocr.ingestion.formats import DocumentFormat
@@ -123,6 +123,42 @@ class Settings(BaseSettings):
     review_allow_synthetic_calibration: bool = False
     # The approver must not be the person who corrected or confirmed values (four eyes).
     review_require_second_person: bool = True
+
+    # Database and background jobs (ADR-0029). Both unset: local mode (synchronous API, file
+    # stores; development only). Both set: service mode (PostgreSQL + Celery on Valkey).
+    # Credentials come from the environment or a secrets file, never from source.
+    database_url: SecretStr | None = None  # postgresql+psycopg://user:pass@host:5432/db
+    broker_url: SecretStr | None = None  # redis://:pass@valkey:6379/0
+    # Run jobs inline in the API process instead of on workers (tests, evaluation scripts).
+    jobs_eager: bool = False
+    # Attempts per job before it is marked failed (deterministic errors fail at once).
+    job_max_attempts: int = Field(default=3, ge=1, le=10)
+    # A running job's lease: renewed by a heartbeat while it runs. A worker that dies stops
+    # renewing it; the job is then taken over on redelivery or by the reaper.
+    job_lease_s: int = Field(default=600, ge=10, le=86400)
+    # How often each worker requeues jobs whose worker died and re-sends lost messages.
+    job_reap_interval_s: int = Field(default=60, ge=1, le=3600)
+    # Broker redelivery of unacknowledged messages (must exceed the longest job).
+    broker_visibility_timeout_s: int = Field(default=7200, ge=30, le=172800)
+    # Admission limits: queued jobs overall, and active jobs per submitting user.
+    max_queued_jobs: int = Field(default=1000, ge=1)
+    max_active_jobs_per_user: int = Field(default=50, ge=1)
+    # Jobs run concurrently by one worker process pool (OCR is CPU-bound; keep it small).
+    worker_concurrency: int = Field(default=1, ge=1, le=64)
+
+    @property
+    def service_mode(self) -> bool:
+        return self.database_url is not None
+
+    @model_validator(mode="after")
+    def _check_services(self) -> Settings:
+        if (self.database_url is None) != (self.broker_url is None):
+            raise ValueError("set both database_url and broker_url, or neither")
+        if self.environment in ("staging", "production") and not self.service_mode:
+            raise ValueError(f"{self.environment} requires database_url and broker_url")
+        if self.jobs_eager and self.environment == "production":
+            raise ValueError("jobs_eager is for tests and evaluation, not production")
+        return self
 
     @property
     def auth_tokens_path(self) -> Path:

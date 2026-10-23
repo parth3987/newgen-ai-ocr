@@ -14,6 +14,7 @@ from PIL import Image
 
 from newgen_ocr.api.app import create_app
 from newgen_ocr.config import Settings
+from newgen_ocr.evaluation.client import authorized
 from newgen_ocr.evaluation.extraction_corpus import gst_invoice
 from newgen_ocr.storage.local import DocumentStore
 from tests.conftest import MODELS_DIR, MODELS_LOCK
@@ -38,7 +39,7 @@ def api_settings(tmp_path: Path) -> Settings:
 @pytest.fixture
 def client(api_settings: Settings) -> Iterator[TestClient]:
     with TestClient(create_app(api_settings), raise_server_exceptions=False) as c:
-        yield c
+        yield authorized(c)
 
 
 def test_schemas(client: TestClient) -> None:

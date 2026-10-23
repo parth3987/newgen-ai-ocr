@@ -388,16 +388,78 @@ Automatic acceptance is never based on OCR confidence alone (REVIEW.md):
   the page-level text comparison for verification. The page-level comparison stays in the
   OCR result.
 
+### ADR-0029: PostgreSQL state, Celery jobs on Valkey, authentication everywhere (2026-10-23)
+Phase 9 adds a **service mode**, used when `NGOCR_DATABASE_URL` and `NGOCR_BROKER_URL` are
+both set. Staging and production refuse to start without them. Local mode (neither set)
+keeps the synchronous API and file stores for development only.
+- **What is stored where (owner's choice).**
+  - PostgreSQL 17 holds tokens, documents and pages, jobs and job events, extraction results
+    (JSONB), review items and revisions, the review history (hash chain kept) and audit
+    events.
+  - Originals, page images and OCR/layout/extraction JSON stay on the shared data volume.
+  - The review history and audit tables are append-only, enforced by a database trigger.
+    This closes OD-34 for anyone without database superuser rights.
+- **Driver.** The owner chose plain psycopg 3 (LGPL-3.0, used unmodified as a library) with
+  the operating system's libpq (Ubuntu `libpq5`, security-patched by the OS).
+  `psycopg-binary` was rejected because it bundles end-of-life CentOS 7 libraries.
+- **New dependencies.** SQLAlchemy 2, Alembic and Celery 5 with redis-py: 18 packages in
+  all, each licence-reviewed (THIRD_PARTY_NOTICES.md). The schema is created and changed
+  only through migrations: `python -m newgen_ocr.db upgrade`.
+- **Jobs.**
+  - The broker carries only job ids. State lives in PostgreSQL, so losing the broker loses
+    no work.
+  - The API checks an upload cheaply (size, signature, extension). It then records the
+    document and its job in one transaction, publishes the id, and returns `202`.
+  - Workers acknowledge a message only when the task ends, and Celery requeues it when a
+    worker process dies.
+  - Only an atomic claim (a conditional `UPDATE`) starts an attempt, so duplicate messages
+    are harmless.
+  - A running job holds a lease renewed by a heartbeat. Every write after the claim checks
+    that this worker still holds it.
+  - The reaper requeues jobs whose lease expired, failing them with `WORKER_LOST` after the
+    last attempt. It also re-sends queued jobs whose message was lost, but only when the
+    broker queue is empty.
+  - Stages are idempotent (each replaces its own output atomically), and completed stages
+    are skipped on retry.
+  - Deterministic errors fail a job at once. Unexpected errors retry with backoff, up to
+    `NGOCR_JOB_MAX_ATTEMPTS` attempts.
+  - Cancellation takes effect between stages.
+- **Duplicates.**
+  - An `Idempotency-Key` header replays the original job. Reusing the key for a different
+    request returns `409`.
+  - The same file from the same user returns the earlier job unless `force` is set.
+  - A partial unique index allows only one active job per document.
+- **Bounded work.** Uploads are refused when the queue is full (`503 QUEUE_FULL`) or when a
+  user has too many active jobs (`429 TOO_MANY_JOBS`). Each worker runs
+  `NGOCR_WORKER_CONCURRENCY` processes and prefetches one message.
+- **Access (owner's choice).**
+  - Every endpoint except the health probes and the static review page needs a bearer
+    token.
+  - Tokens are stored in PostgreSQL in service mode.
+  - A new `submitter` role, below viewer, sees and controls only its own documents and
+    jobs. Documents it may not see are reported as not found.
+  - Viewers and above see everything. Only admins control other users' jobs.
+  - Lists are paginated (`limit` up to 200, `offset`).
+- **Private ports.** `deploy/compose.yaml` puts PostgreSQL and Valkey on an internal
+  network with no published ports. Passwords are read from secret files: SCRAM for
+  PostgreSQL, and a config file rather than the command line for Valkey.
+  `deploy/compose.dev.yaml` publishes them on 127.0.0.1 for development and tests.
+- **Logs.**
+  - The engine uses `hide_parameters`, so bound values never appear in errors.
+  - URLs are `SecretStr`; startup logs show only host, port and database name.
+  - Job errors store the error code's public message, never exception text.
+  - Workers log job ids, stage names and codes only.
+
 ## Open decisions (defaults in force until decided)
 
 | ID | Question | Default assumption |
 |---|---|---|
 | OD-1 | Production container base image | `ubuntu:24.04` + uv-provisioned Python 3.11, for parity with the target OS |
-| OD-2 | Queue broker | Valkey (BSD-3-Clause) |
+| OD-2 | Queue broker | **Decided (ADR-0029):** Valkey 8 (BSD-3-Clause) with Celery |
 | OD-3 | Handwriting model | None selected. Candidates are license-reviewed in the handwriting phase; **stop and report** if none is clearly licensed |
 | OD-4 | PaddleOCR coverage for te/hi/ta/kn/mr on CPU | **Measured on the synthetic corpus (Phase 4)**: see ACCURACY_EVALUATION.md. Real-scan accuracy remains unmeasured |
 | OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 9) |
-| OD-6 | API authentication | **Partly done (ADR-0027):** review endpoints use local hashed tokens with roles. Default for the rest: database-backed API keys for integrations and a session login for the full review application in Phase 9; OIDC optional later. Until then the non-review endpoints are unauthenticated |
+| OD-6 | API authentication | **Done for the API (ADR-0029):** every endpoint except health and the static review page needs a bearer token; tokens are in PostgreSQL in service mode, with a `submitter` role for integrations. Still open: a session login for the full review application (Phase 10, with OD-35); OIDC optional later |
 | OD-7 | Test-client transport | Starlette warns that `httpx` is deprecated in favour of `httpx2`. Migration is held for approval (new dependency) |
 | OD-8 | GitHub Actions pinning | Pinned to major tags today; pin to commit SHAs before the first protected-branch merge |
 | OD-9 | Untracked empty `requirements.txt` | Left untouched; superseded by `requirements.in`/`.lock`. Propose deleting it |
@@ -425,9 +487,14 @@ Automatic acceptance is never based on OCR confidence alone (REVIEW.md):
 | OD-31 | Unruled bank statements | Transaction tables without rules are not detected by layout (OD-26), so their transactions are not extracted (the statement is routed to review). Candidate: line-based transaction parsing with column positions from the header line |
 | OD-32 | Amounts in words | "Rupees Eleven Thousand Eight Hundred Only" is not parsed or cross-checked against the total. Candidate: an Indian-numbering words parser as an extra check |
 | OD-33 | Calibration on real documents | Thresholds were fitted on synthetic documents only, and automatic acceptance stays off. Default: label consented real documents (or use approved reviews, `--from-reviews`) and refit before enabling it; at least 50 gated values per field |
-| OD-34 | Off-host copy of the review history | The hash chain detects edits but cannot stop a full rewrite by someone with write access. Default: ship `history.jsonl` to write-once storage (or the database with append-only grants) in Phase 9 |
+| OD-34 | Off-host copy of the review history | **Partly done (ADR-0029):** in service mode the history and audit tables are append-only (trigger), so only a database superuser can rewrite them. Default: also copy them to write-once storage or a separate log host (Phase 11) |
 | OD-35 | Review page sign-in | Reviewers paste a token, kept in the tab's session storage (strict CSP, no external scripts). Alternative: server sessions with HttpOnly cookies and CSRF protection, with the full review application |
 | OD-36 | Brute-force protection for tokens | Failures are audited but not rate-limited (secrets are 256-bit, so guessing is infeasible). Default: add per-address rate limiting at the reverse proxy |
 | OD-37 | Text cells in tables vs the second engine | A description cell the second engine reads differently blocks table verification, while numbers are corroborated by row checks. Default: keep (conservative); revisit with real documents |
 | OD-38 | Corrections after re-extraction | A new extraction makes a new revision and earlier corrections are not carried over (values and candidates may have changed); the old revision is kept read-only. Alternative: re-apply corrections whose location and extracted value are unchanged |
 | OD-39 | Name fields accepting identifiers | On 3 heavily degraded PAN cards the PAN number was extracted as the holder's name (confidence 0.999; caught by the page-quality gate). Candidate: name/text normalisers reject values that match an identifier format (PAN, GSTIN, Aadhaar) |
+| OD-40 | PostgreSQL image version | `postgres:17.10-alpine` pinned by digest. 17.11 was released fewer than 14 days ago, so ADR-0007 holds it back. Default: move to the newest 17.x once it is 14 days old, after checking the 17.11 release notes for security fixes that affect us |
+| OD-41 | Database and broker TLS | Both are reached only on the internal container network (or loopback in development), without TLS. Default: keep for a single host; require TLS (`sslmode=verify-full`, `rediss://`) if they ever run on another host |
+| OD-42 | Backups and retention | Nothing is backed up or expired automatically yet. Default: nightly `pg_dump` plus a data-volume snapshot, and retention rules for documents and job events, with OD-16 (Phase 11) |
+| OD-43 | Valkey persistence | Append-only file on, so queued messages survive a restart (the reaper re-sends any that are lost). Default: keep; `appendfsync everysec` (the default) can lose about one second of messages, which the reaper recovers |
+| OD-44 | libpq on hosts | Service mode needs the OS libpq (`sudo apt install libpq5` on Ubuntu; in the image in Phase 11). Without it, psycopg cannot load and the service-mode tests are skipped |

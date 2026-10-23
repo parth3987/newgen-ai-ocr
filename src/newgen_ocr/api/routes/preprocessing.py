@@ -1,21 +1,28 @@
 """Preprocessing profiles and per-document preprocessing runs.
 
-No authentication yet (DECISIONS.md OD-6): bind to localhost or a trusted network only.
+Every endpoint needs a bearer token; submitters reach only their own documents. In service
+mode a run is queued as a job (``202``) instead of running in the request (ADR-0029).
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Request
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Path, Request
+from fastapi.responses import FileResponse, JSONResponse
 
+from newgen_ocr.api.auth import principal, require_document
+from newgen_ocr.api.routes.jobs import QUEUED, IdempotencyKey, accepted, jobs_service
+from newgen_ocr.auth.tokens import Principal
+from newgen_ocr.jobs.models import JobParams, StageRequest
 from newgen_ocr.preprocessing.models import PreprocessingRun
 from newgen_ocr.preprocessing.profiles import ProfileConfig
 from newgen_ocr.preprocessing.service import PreprocessingService
 from newgen_ocr.storage.local import DocumentStore
 
-router = APIRouter(prefix="/api/v1", tags=["preprocessing"])
+router = APIRouter(
+    prefix="/api/v1", tags=["preprocessing"], dependencies=[Depends(require_document())]
+)
 
 DocumentId = Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")]
 ProfileName = Annotated[str, Path(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
@@ -47,12 +54,21 @@ def list_runs(request: Request, document_id: DocumentId) -> list[str]:
     "/documents/{document_id}/preprocessing/{profile}",
     status_code=201,
     response_model=PreprocessingRun,
+    responses=QUEUED,
 )
 def run_profile(
-    request: Request, document_id: DocumentId, profile: ProfileName
-) -> PreprocessingRun:
+    request: Request,
+    document_id: DocumentId,
+    profile: ProfileName,
+    who: Annotated[Principal, Depends(principal)],
+    idempotency_key: IdempotencyKey = None,
+) -> PreprocessingRun | JSONResponse:
     """(Re)run a profile. Replaces any earlier run of the same profile; other profiles and
     the source page images are untouched."""
+    jobs = jobs_service(request)
+    if jobs is not None:
+        stage = StageRequest(kind="preprocessing", params=JobParams(profile=profile))
+        return accepted(jobs.submit_stage(document_id, stage, who, idempotency_key))
     return _service(request).run(document_id, profile)
 
 

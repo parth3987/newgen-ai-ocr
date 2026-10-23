@@ -58,6 +58,17 @@ class UploadInfo:
 
 
 @dataclass(frozen=True)
+class Accepted:
+    """An upload in quarantine whose size, signature and extension passed the checks."""
+
+    document_id: str
+    path: Path
+    sha256: str
+    size: int
+    format: DocumentFormat
+
+
+@dataclass(frozen=True)
 class ReceivedFile:
     path: Path
     size: int
@@ -162,29 +173,58 @@ class IngestionService:
         self.store = store
         self.audit = audit
 
-    def ingest(self, source: BinaryIO, upload: UploadInfo) -> DocumentManifest:
+    def ingest(
+        self, source: BinaryIO, upload: UploadInfo, submitted_by: str | None = None
+    ) -> DocumentManifest:
+        """Receive, validate and process an upload in one step (local mode)."""
+        return self.process(self.accept(source, upload), upload, submitted_by)
+
+    def accept(self, source: BinaryIO, upload: UploadInfo) -> Accepted:
+        """Copy the upload to quarantine and check its size, signature and extension.
+
+        Cheap and bounded: safe in the API process. Decoding and rendering happen in
+        ``process`` (a worker, in service mode; OD-12).
+        """
         document_id = new_document_id()
-        quarantined = self.store.new_quarantine_path()
-        staged: StagedDocument | None = None
+        quarantined = self.store.new_quarantine_path(document_id)
         received: ReceivedFile | None = None
-        fmt: DocumentFormat | None = None
         try:
             received = receive(source, quarantined, self.settings.max_upload_bytes)
             fmt = detect_format(received.head, self.settings.allowed_formats)
             check_extension(fmt, upload.filename)
+        except BaseException as exc:
+            self.store.discard(quarantined, None)
+            self._rejected(exc, received, None)
+            raise
+        return Accepted(document_id, received.path, received.sha256, received.size, fmt)
 
+    def process(
+        self,
+        accepted: Accepted,
+        upload: UploadInfo,
+        submitted_by: str | None = None,
+        retain_on_error: bool = False,
+    ) -> DocumentManifest:
+        """Decode, render and assess the pages of an accepted upload, then commit it.
+
+        A rejected file (``AppError``) is always discarded. With ``retain_on_error`` (a
+        worker, which retries), the upload stays in quarantine after any other error.
+        """
+        document_id, fmt = accepted.document_id, accepted.format
+        staged: StagedDocument | None = None
+        try:
             staged = self.store.stage(document_id)
             encrypted = False
             if fmt is DocumentFormat.PDF:
-                pages, encrypted = _process_pdf(received.path, staged, self.settings)
+                pages, encrypted = _process_pdf(accepted.path, staged, self.settings)
             else:
-                pages = _process_image(received.path, fmt, staged, self.settings)
+                pages = _process_image(accepted.path, fmt, staged, self.settings)
 
             manifest = DocumentManifest(
                 document_id=document_id,
                 created_at=datetime.now(tz=UTC),
-                sha256=received.sha256,
-                size_bytes=received.size,
+                sha256=accepted.sha256,
+                size_bytes=accepted.size,
                 format=fmt,
                 media_type=MEDIA_TYPES[fmt],
                 original_filename=safe_filename(upload.filename),
@@ -192,6 +232,7 @@ class IngestionService:
                 pdf_encrypted=encrypted,
                 page_count=len(pages),
                 pages=pages,
+                submitted_by=submitted_by,
                 processing=ProcessingInfo(
                     pipeline_version=__version__,
                     render_dpi=self.settings.render_dpi,
@@ -202,18 +243,14 @@ class IngestionService:
                 ),
             )
             staged.write_manifest(manifest)
-            self.store.commit(document_id, received.path, fmt, staged)
+            self.store.commit(document_id, accepted.path, fmt, staged)
         except BaseException as exc:
-            self.store.discard(quarantined, staged)
-            code = exc.code if isinstance(exc, AppError) else ErrorCode.INTERNAL_ERROR
-            self.audit.record(
-                AuditEvent.DOCUMENT_REJECTED,
-                error_code=code.value,
-                sha256=received.sha256 if received else None,
-                size_bytes=received.size if received else None,
-                format=fmt.value if fmt else None,
-            )
-            logger.info("document rejected", extra={"error_code": code.value})
+            if retain_on_error and not isinstance(exc, AppError):
+                self.store.discard(None, staged)
+                raise
+            self.store.discard(accepted.path, staged)
+            received = ReceivedFile(accepted.path, accepted.size, accepted.sha256, b"")
+            self._rejected(exc, received, fmt)
             raise
 
         self.audit.record(
@@ -235,3 +272,20 @@ class IngestionService:
             },
         )
         return manifest
+
+    def discard(self, accepted: Accepted) -> None:
+        """Remove an accepted upload that will not be processed (duplicate, cancelled)."""
+        self.store.discard(accepted.path, None)
+
+    def _rejected(
+        self, exc: BaseException, received: ReceivedFile | None, fmt: DocumentFormat | None
+    ) -> None:
+        code = exc.code if isinstance(exc, AppError) else ErrorCode.INTERNAL_ERROR
+        self.audit.record(
+            AuditEvent.DOCUMENT_REJECTED,
+            error_code=code.value,
+            sha256=received.sha256 if received else None,
+            size_bytes=received.size if received else None,
+            format=fmt.value if fmt else None,
+        )
+        logger.info("document rejected", extra={"error_code": code.value})

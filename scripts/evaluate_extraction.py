@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 
 from newgen_ocr.api.app import create_app
 from newgen_ocr.config import Settings
+from newgen_ocr.evaluation.client import authorized
 from newgen_ocr.evaluation.extraction_corpus import build, load_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,7 +78,7 @@ def main() -> int:
         log_level="WARNING",
         _env_file=None,
     )
-    client = TestClient(create_app(settings))
+    client = authorized(TestClient(create_app(settings)))
     rows = []
     totals: Counter[str] = Counter()
     for sample in load_manifest(CORPUS):

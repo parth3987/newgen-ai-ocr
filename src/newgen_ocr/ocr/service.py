@@ -477,7 +477,10 @@ class OcrService:
         profile: str | None,
         compare: bool = False,
         handwriting: bool = False,
+        compare_required: bool = True,
     ) -> OcrRun:
+        """``compare_required=False``: skip the comparison (instead of failing) when no
+        second engine is available for these languages (background pipeline jobs)."""
         auto_languages = self._check_languages(languages)
         if auto_languages and (self.detector is None or not self.detector.available()):
             raise AppError(
@@ -533,7 +536,14 @@ class OcrService:
 
         if compare:
             # Also flags disagreeing pages on `run`, so it runs before the run is stored.
-            self._compare(manifest, plans, run, engine, languages, profile)
+            try:
+                self._compare(manifest, plans, run, engine, languages, profile)
+            except AppError as exc:
+                if compare_required or exc.code is not ErrorCode.OCR_ENGINE_UNAVAILABLE:
+                    raise
+                logger.info(
+                    "comparison skipped: no second engine", extra={"document_id": document_id}
+                )
         self.store.write_ocr_run(document_id, run.requested_engine, run)
 
         self.audit.record(

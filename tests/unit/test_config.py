@@ -22,6 +22,8 @@ def test_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("NGOCR_ENVIRONMENT", "production")
     monkeypatch.setenv("NGOCR_LOG_LEVEL", "WARNING")
     monkeypatch.setenv("NGOCR_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("NGOCR_DATABASE_URL", "postgresql+psycopg://u:secret@db:5432/ngocr")
+    monkeypatch.setenv("NGOCR_BROKER_URL", "redis://:secret@valkey:6379/0")
     s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.environment == "production"
     assert s.log_level == "WARNING"

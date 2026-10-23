@@ -14,11 +14,13 @@ from PIL import Image
 from newgen_ocr.api.app import create_app
 from newgen_ocr.auth.tokens import Role, TokenStore
 from newgen_ocr.config import Settings
+from newgen_ocr.evaluation.client import authorized
 from newgen_ocr.evaluation.extraction_corpus import gst_invoice
 from newgen_ocr.storage.local import DocumentStore
 from tests.conftest import MODELS_DIR, MODELS_LOCK
 from tests.fixtures.extraction import INVOICE, ITEMS, store_document, table
 from tests.fixtures.review import calibration
+from tests.fixtures.services import PLACEHOLDER_URLS
 
 DOCS = "/api/v1/documents"
 
@@ -71,7 +73,9 @@ def test_authentication_and_roles(client: TestClient, settings: Settings) -> Non
 def test_workflow_over_http(client: TestClient, settings: Settings) -> None:
     tokens = _tokens(settings)
     doc = store_document(settings, DocumentStore(settings.data_dir), INVOICE, [table(ITEMS)])
-    assert client.post(f"{DOCS}/{doc}/extraction", json={}).status_code == 201
+    assert (
+        client.post(f"{DOCS}/{doc}/extraction", json={}, headers=tokens["asha"]).status_code == 201
+    )
     queue = client.get("/api/v1/review/items", headers=tokens["vic"]).json()
     assert queue["total"] == 1 and queue["items"][0]["document_id"] == doc
     base = f"/api/v1/review/items/{doc}/auto"
@@ -157,6 +161,7 @@ def test_auto_accept_configuration(
         review_calibration_file=path,
         review_auto_accept=True,
         _env_file=None,
+        **PLACEHOLDER_URLS,
     )
     # The dev OpenCV wheel is refused in production first (ADR-0015); not under test here.
     monkeypatch.setattr("newgen_ocr.api.app.check_opencv_build", lambda environment: None)
@@ -178,6 +183,7 @@ def test_live_invoice_cross_checked_by_second_engine(tmp_path: Path, settings: S
     buf = io.BytesIO()
     Image.fromarray(image).save(buf, "PNG")
     with TestClient(create_app(live)) as client:
+        authorized(client)
         tokens = _tokens(live)
         doc = client.post(DOCS, files={"file": ("inv.png", buf.getvalue(), "image/png")}).json()[
             "document_id"

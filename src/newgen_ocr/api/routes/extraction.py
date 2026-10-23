@@ -1,26 +1,34 @@
 """Structured extraction from a stored layout run, and its exports (ADR-0026).
 
 Rule- and template-based only: no LLM or external service is involved. Runs synchronously
-in the request for now (ADR-0012). No authentication yet (OD-6).
+in the request in local mode (ADR-0012) and as a job (``202``) in service mode (ADR-0029).
+Every endpoint needs a bearer token; submitters reach only their own documents.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Path, Query, Request, Response
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from newgen_ocr.api.auth import principal, require_document
+from newgen_ocr.api.routes.jobs import QUEUED, IdempotencyKey, accepted, jobs_service
 from newgen_ocr.audit import AuditEvent, AuditLog
+from newgen_ocr.auth.tokens import Principal
 from newgen_ocr.errors import AppError, ErrorCode
 from newgen_ocr.extraction import export
 from newgen_ocr.extraction.models import ExtractionResult
 from newgen_ocr.extraction.schema import DocumentSchema
 from newgen_ocr.extraction.service import ExtractionService
+from newgen_ocr.jobs.models import JobParams, StageRequest
 from newgen_ocr.review.service import ReviewService
 from newgen_ocr.storage.local import DocumentStore
 
-router = APIRouter(prefix="/api/v1", tags=["extraction"])
+router = APIRouter(
+    prefix="/api/v1", tags=["extraction"], dependencies=[Depends(require_document())]
+)
 
 DocumentId = Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")]
 RunName = Annotated[str, Path(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
@@ -74,13 +82,32 @@ def get_schema(request: Request, schema_id: SchemaId) -> DocumentSchema:
 
 
 @router.post(
-    "/documents/{document_id}/extraction", status_code=201, response_model=ExtractionResult
+    "/documents/{document_id}/extraction",
+    status_code=201,
+    response_model=ExtractionResult,
+    responses=QUEUED,
 )
 def run_extraction(
-    request: Request, document_id: DocumentId, body: ExtractionRequest
-) -> ExtractionResult:
+    request: Request,
+    document_id: DocumentId,
+    body: ExtractionRequest,
+    who: Annotated[Principal, Depends(principal)],
+    idempotency_key: IdempotencyKey = None,
+) -> ExtractionResult | JSONResponse:
     """Classify and extract. Replaces any earlier extraction of the same layout run, and
     queues the result for verification and review (``/api/v1/review/items/...``)."""
+    jobs = jobs_service(request)
+    if jobs is not None:
+        if body.layout_run not in ("auto", "paddle", "tesseract"):
+            raise AppError(
+                ErrorCode.LAYOUT_RUN_NOT_FOUND, "Jobs use the auto, paddle or tesseract run"
+            )
+        params = JobParams(
+            engine=body.layout_run,
+            document_type=body.document_type,
+        )
+        stage = StageRequest(kind="extraction", params=params)
+        return accepted(jobs.submit_stage(document_id, stage, who, idempotency_key))
     result = _service(request).extract(document_id, body.layout_run, body.document_type)
     reviews: ReviewService = request.app.state.review
     reviews.enqueue(result)

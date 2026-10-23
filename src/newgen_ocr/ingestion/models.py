@@ -99,4 +99,6 @@ class DocumentManifest(BaseModel):
     pdf_encrypted: bool = False  # permissions-only encryption; password-protected is rejected
     page_count: int
     pages: list[PageManifest]
+    # The authenticated user who uploaded the document (access control, ADR-0029).
+    submitted_by: str | None = None
     processing: ProcessingInfo

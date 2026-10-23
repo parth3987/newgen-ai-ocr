@@ -28,6 +28,7 @@ import re
 import shutil
 import threading
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
@@ -131,8 +132,39 @@ class DocumentStore:
 
     # ------------------------------------------------------------ write side
 
-    def new_quarantine_path(self) -> Path:
-        return self._ensure(self.quarantine_dir) / f"{uuid.uuid4().hex}.part"
+    def new_quarantine_path(self, name: str | None = None) -> Path:
+        """A fresh quarantine file; named after the document id when given, so a worker can
+        find an upload the API accepted (service mode)."""
+        return self._ensure(self.quarantine_dir) / f"{name or uuid.uuid4().hex}.part"
+
+    def quarantine_path(self, document_id: str) -> Path:
+        if not is_valid_document_id(document_id):
+            raise AppError(ErrorCode.DOCUMENT_NOT_FOUND, "Document not found")
+        return self.quarantine_dir / f"{document_id}.part"
+
+    def has_document(self, document_id: str) -> bool:
+        return (
+            is_valid_document_id(document_id)
+            and (self.derived_dir / document_id / "manifest.json").is_file()
+        )
+
+    def recover_ingest(self, document_id: str) -> None:
+        """Undo a half-finished ingest (a worker stopped mid-way) so it can run again:
+        remove leftover staging, and return an original already moved out of quarantine
+        when its derived tree never arrived."""
+        if not is_valid_document_id(document_id) or self.has_document(document_id):
+            return
+        shutil.rmtree(self.staging_dir / document_id, ignore_errors=True)
+        original_dir = self.originals_dir / document_id
+        if original_dir.is_dir():
+            quarantined = self.quarantine_path(document_id)
+            for original in original_dir.iterdir():
+                if not quarantined.exists():
+                    os.replace(original, quarantined)
+                    os.chmod(quarantined, _FILE_MODE)
+                else:
+                    original.unlink()
+            original_dir.rmdir()
 
     def stage(self, document_id: str) -> StagedDocument:
         return StagedDocument(self._ensure(self.staging_dir) / document_id)
@@ -172,6 +204,14 @@ class DocumentStore:
     def read_manifest(self, document_id: str) -> DocumentManifest:
         path = self._document_dir(document_id) / "manifest.json"
         return DocumentManifest.model_validate_json(path.read_bytes())
+
+    def manifests(self) -> Iterator[DocumentManifest]:
+        """Every stored document (local mode listing; service mode lists from the database)."""
+        if not self.derived_dir.is_dir():
+            return
+        for path in sorted(self.derived_dir.glob("*/manifest.json")):
+            if is_valid_document_id(path.parent.name):
+                yield DocumentManifest.model_validate_json(path.read_bytes())
 
     def _check_page(self, manifest: DocumentManifest, page_number: int) -> None:
         if not 1 <= page_number <= manifest.page_count:

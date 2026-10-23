@@ -224,14 +224,17 @@ python -m newgen_ocr.auth revoke <token-id>
 How tokens work:
 - **Format:** `ngocr_<id>_<secret>`, sent as `Authorization: Bearer …`. The token is shown
   once; only a SHA-256 hash of its 256-bit secret is stored.
-- **Storage:** `NGOCR_AUTH_TOKENS_FILE` (default `data/auth/tokens.json`, mode 0600). The
-  file is re-read when it changes, so revocation takes effect immediately.
+- **Storage:** in service mode, the `api_tokens` table in PostgreSQL. In local mode,
+  `NGOCR_AUTH_TOKENS_FILE` (default `data/auth/tokens.json`, mode 0600), re-read when it
+  changes. Either way revocation takes effect immediately.
 - **Roles:**
-  - `viewer` reads the queue, items, crops and history;
+  - `submitter` (integrations) uploads and reads or re-runs only its own documents and
+    jobs. It has no access to the review queue;
+  - `viewer` reads every document and result, the queue, items, crops and history;
   - `reviewer` also claims, corrects and rejects;
   - `approver` also approves and reads patterns;
   - `admin` also takes over items and verifies the history chain.
 
-The review endpoints require a token. **The other endpoints are still unauthenticated**
-(OD-6). Bind the service to localhost or a trusted network until the persistence phase adds
-authentication everywhere.
+Every endpoint except the health probes and the static review page requires a token
+(ADR-0029). In service mode the review items, revisions and history are stored in
+PostgreSQL, with the same hash chain; the history table is append-only.

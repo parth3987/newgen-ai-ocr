@@ -11,6 +11,7 @@ from PIL import Image
 
 from newgen_ocr.api.app import MULTIPART_OVERHEAD_BYTES, create_app
 from newgen_ocr.config import Settings
+from newgen_ocr.evaluation.client import authorized
 from tests.fixtures.builders import PARAGRAPH, PageSpec, build_pdf, image_bytes, jpeg_bytes
 
 UPLOAD = "/api/v1/documents"
@@ -122,6 +123,7 @@ def test_missing_file_field(client: TestClient) -> None:
 def test_oversized_upload_rejected(tmp_path: Path) -> None:
     settings = Settings(data_dir=tmp_path, max_upload_bytes=10_000, _env_file=None)  # type: ignore[call-arg]
     with TestClient(create_app(settings)) as client:
+        authorized(client)
         # Within the multipart allowance: rejected by the ingestion stream limit.
         small_over = client.post(UPLOAD, files={"file": ("a.pdf", b"%PDF-" + b"0" * 20_000)})
         # Beyond it: rejected by the request body limit before parsing.
@@ -141,6 +143,7 @@ def test_streamed_body_without_content_length_is_limited(tmp_path: Path) -> None
             yield b"0" * 1024
 
     with TestClient(create_app(settings)) as client:
+        authorized(client)
         response = client.post(
             UPLOAD,
             content=chunks(),

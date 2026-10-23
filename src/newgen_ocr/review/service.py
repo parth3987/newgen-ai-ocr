@@ -223,16 +223,8 @@ class ReviewService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[int, list[ReviewItemSummary]]:
-        matching = [
-            i
-            for i in self.reviews.items()
-            if i.status in statuses
-            and (schema_id is None or i.schema_id == schema_id)
-            and (reason is None or reason in i.reasons)
-            and (assigned_to is None or i.assigned_to == assigned_to)
-        ]
-        matching.sort(key=lambda i: (-i.priority, i.created_at))
-        return len(matching), [
+        total, page = self.reviews.query(statuses, schema_id, reason, assigned_to, limit, offset)
+        return total, [
             ReviewItemSummary(
                 document_id=i.document_id,
                 layout_run=i.layout_run,
@@ -245,7 +237,7 @@ class ReviewService:
                 created_at=i.created_at,
                 updated_at=i.updated_at,
             )
-            for i in matching[offset : offset + limit]
+            for i in page
         ]
 
     def item(self, document_id: str, layout_run: str) -> ReviewItem:

@@ -21,8 +21,18 @@ make eval-layout # layout, tables, reading order, key-value pairs (synthetic lay
 make eval-extraction   # classification, fields, tables, checks (synthetic extraction set)
 make schemas     # regenerate docs/schemas/ and EXTRACTION_SCHEMAS.md (a test checks drift)
 make calibrate   # fit review thresholds on the synthetic calibration set (about 2 h, CPU)
-make check       # lint + typecheck + test + security + licenses
+make services-up # PostgreSQL + Valkey on 127.0.0.1 (podman or docker); service-mode tests
+make services-down
+make check       # lint + typecheck + services-up + test + security + licenses
 ```
+
+**Service-mode tests** (`tests/integration/test_jobs.py`, `test_worker.py`) run against the
+real PostgreSQL and Valkey from `make services-up`. `make test` passes their URLs from
+`deploy/secrets/` as `NGOCR_TEST_DATABASE_URL` and `NGOCR_TEST_BROKER_URL`. Each test gets
+a fresh database, copied from a migrated template and dropped afterwards; Valkey database
+15 is flushed. Without the URLs, or without the OS libpq (`sudo apt install libpq5`), these
+tests are **skipped**, and pytest reports them as skipped. `test_worker.py` starts the real
+worker (`NGOCR_TEST_WORKER_CMD` overrides the command) and kills it in the middle of a job.
 
 Run a single test: `.venv/bin/pytest tests/unit/test_health.py::test_live_returns_ok_and_version`.
 
@@ -38,8 +48,9 @@ tests/
   fixtures/ocr.py    fake OCR engines and script detector
   fixtures/layout.py fake layout models, a drawn ruled-table page, SLANet-style tokens
   fixtures/extraction.py documents from text lines: in-memory views or stored OCR/layout runs
+  fixtures/services.py  per-test PostgreSQL databases (migrated template) for service mode
   unit/              fast, no external services
-  integration/       HTTP API + real local storage (Phase 2); Postgres/Valkey [planned P7]
+  integration/       HTTP API + real local storage; service mode on real Postgres/Valkey
   e2e/               upload → OCR → export on fixtures       [planned P5+]
 ```
 

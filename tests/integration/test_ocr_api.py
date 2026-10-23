@@ -14,6 +14,7 @@ from PIL import Image
 from newgen_ocr.api.app import create_app
 from newgen_ocr.config import Settings
 from newgen_ocr.errors import ErrorCode
+from newgen_ocr.evaluation.client import authorized
 from newgen_ocr.evaluation.corpus import DEFAULT_FONT_DIR, LANGUAGE_FONTS, load_lines, render_page
 from newgen_ocr.evaluation.metrics import cer
 from newgen_ocr.ocr.service import OcrService
@@ -52,7 +53,7 @@ def ocr_settings(tmp_path: Path) -> Settings:
 @pytest.fixture
 def client(ocr_settings: Settings) -> Iterator[TestClient]:
     with TestClient(create_app(ocr_settings), raise_server_exceptions=False) as c:
-        yield c
+        yield authorized(c)
 
 
 def _fake(client: TestClient, **engines: FakeEngine) -> None:

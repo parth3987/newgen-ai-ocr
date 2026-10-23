@@ -1,0 +1,16 @@
+# Development and tests only: publish PostgreSQL and Valkey on the loopback interface so
+# the API, workers and tests on this host can reach them. Never use in staging or
+# production (there, only containers on the internal network connect).
+#
+#   podman compose -f deploy/compose.yaml -f deploy/compose.dev.yaml up -d
+services:
+  postgres:
+    ports: ["127.0.0.1:55432:5432"]
+    networks: [backend, loopback]
+  valkey:
+    ports: ["127.0.0.1:56379:6379"]
+    networks: [backend, loopback]
+
+networks:
+  # Publishing a port needs a non-internal network; it is bound to 127.0.0.1 only.
+  loopback: {}

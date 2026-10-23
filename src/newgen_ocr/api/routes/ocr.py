@@ -1,23 +1,30 @@
 """OCR engines and per-document OCR runs.
 
-OCR runs synchronously in the request for now (ADR-0012); expect seconds per page on CPU.
-No authentication yet (DECISIONS.md OD-6): bind to localhost or a trusted network only.
+Local mode runs OCR in the request (ADR-0012; expect seconds per page on CPU). Service mode
+queues it, with layout and extraction after it, as a job (``202``; ADR-0029). Every
+endpoint needs a bearer token; submitters reach only their own documents.
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Request
+from fastapi import APIRouter, Depends, Path, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from newgen_ocr.api.auth import principal, require_document
+from newgen_ocr.api.routes.jobs import QUEUED, IdempotencyKey, accepted, jobs_service
+from newgen_ocr.auth.tokens import Principal
 from newgen_ocr.config import Settings
+from newgen_ocr.errors import AppError, ErrorCode
+from newgen_ocr.jobs.models import JobParams, StageRequest
 from newgen_ocr.ocr.languages import LANGUAGES, LanguageInfo
 from newgen_ocr.ocr.models import OcrComparison, OcrRun
 from newgen_ocr.ocr.service import EngineStatus, OcrService
 from newgen_ocr.storage.local import DocumentStore
 
-router = APIRouter(prefix="/api/v1", tags=["ocr"])
+router = APIRouter(prefix="/api/v1", tags=["ocr"], dependencies=[Depends(require_document())])
 
 DocumentId = Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")]
 RunName = Annotated[str, Path(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
@@ -55,9 +62,33 @@ def list_engines(request: Request) -> list[EngineStatus]:
     return _service(request).status()
 
 
-@router.post("/documents/{document_id}/ocr", status_code=201, response_model=OcrRun)
-def run_ocr(request: Request, document_id: DocumentId, body: OcrRequest) -> OcrRun:
-    """Run OCR. Replaces any earlier run for the same engine name."""
+@router.post(
+    "/documents/{document_id}/ocr", status_code=201, response_model=OcrRun, responses=QUEUED
+)
+def run_ocr(
+    request: Request,
+    document_id: DocumentId,
+    body: OcrRequest,
+    who: Annotated[Principal, Depends(principal)],
+    idempotency_key: IdempotencyKey = None,
+) -> OcrRun | JSONResponse:
+    """Run OCR. Replaces any earlier run for the same engine name. In service mode the job
+    also re-runs layout and extraction on the new OCR."""
+    jobs = jobs_service(request)
+    if jobs is not None:
+        if body.engine not in ("auto", "paddle", "tesseract"):
+            raise AppError(
+                ErrorCode.UNKNOWN_ENGINE, "Jobs run the auto, paddle or tesseract engine"
+            )
+        params = JobParams(
+            profile=body.preprocessing_profile,
+            engine=body.engine,
+            languages=body.languages,
+            compare=body.compare,
+            handwriting=body.handwriting,
+        )
+        stage = StageRequest(kind="ocr", params=params)
+        return accepted(jobs.submit_stage(document_id, stage, who, idempotency_key))
     settings: Settings = request.app.state.settings
     return _service(request).run(
         document_id,

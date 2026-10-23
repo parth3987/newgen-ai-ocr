@@ -12,6 +12,12 @@ scanned PDFs and handwriting recognition.
 
 ## Status
 
+Phase 9 (database, background jobs and APIs) is complete. In service mode, PostgreSQL holds
+documents, jobs, results, review and audit records. Celery workers on Valkey run the
+pipeline, and uploads return `202` with a job. Workers that crash are recovered from leases,
+and duplicate submissions return the original job. Every endpoint needs a bearer token (see
+[ADR-0029](docs/DECISIONS.md) and the Jobs section of
+[API_SPECIFICATION](docs/API_SPECIFICATION.md)).
 Phase 8 (confidence, verification and human review) is complete: every extracted value
 passes field-specific gates before it counts as verified (a confidence threshold calibrated
 on held-out ground truth, agreement of a second OCR engine, business-rule checks, clean
@@ -38,27 +44,33 @@ embedded text from native PDF pages, assesses and preprocesses scanned pages, an
 PaddleOCR (primary; Tesseract for Kannada) or Tesseract (baseline/fallback) fully offline with pinned,
 hash-verified models for English, Hindi, Marathi, Telugu, Tamil and Kannada. Accuracy and
 throughput have been measured only on a synthetic corpus so far (see
-[ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md)). Persistence and jobs are
-still to come. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+[ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md)). See
+[docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start
 
-Requirements: [uv](https://docs.astral.sh/uv/), GNU make, `tesseract-ocr` (apt); Docker for
-`make secrets`.
+Requirements: [uv](https://docs.astral.sh/uv/), GNU make, `tesseract-ocr` and `libpq5`
+(apt); Podman or Docker for `make services-up` and `make secrets`.
 
 ```bash
 make venv              # Python 3.11 venv from hash-pinned locks
 make models            # staging only: fetch + verify pinned OCR/layout models (~450 MB)
 make check             # lint, types, tests, security, licenses
-make run               # API on http://127.0.0.1:8000
+make run               # API on http://127.0.0.1:8000 (local mode: synchronous)
 curl localhost:8000/health/ready
-curl -F file=@document.pdf -F profile=standard localhost:8000/api/v1/documents
-curl -X POST -H 'Content-Type: application/json' -d '{"languages":["te"]}' \
+TOKEN=$(.venv/bin/python -m newgen_ocr.auth create --user me --role admin)
+AUTH="Authorization: Bearer $TOKEN"
+curl -H "$AUTH" -F file=@document.pdf -F profile=standard localhost:8000/api/v1/documents
+curl -H "$AUTH" -X POST -H 'Content-Type: application/json' -d '{"languages":["te"]}' \
      localhost:8000/api/v1/documents/<document_id>/ocr
-curl -X POST localhost:8000/api/v1/documents/<document_id>/layout   # tables, reading order
-curl -X POST localhost:8000/api/v1/documents/<document_id>/extraction  # fields, checks
-curl -o out.xlsx 'localhost:8000/api/v1/documents/<document_id>/extraction/auto/export?format=xlsx'
+curl -H "$AUTH" -X POST localhost:8000/api/v1/documents/<document_id>/layout      # tables
+curl -H "$AUTH" -X POST localhost:8000/api/v1/documents/<document_id>/extraction  # fields
+curl -H "$AUTH" -o out.xlsx \
+     'localhost:8000/api/v1/documents/<document_id>/extraction/auto/export?format=xlsx'
 ```
+
+Service mode (PostgreSQL, Valkey and workers; uploads queue the whole pipeline): see
+"Service mode" in [OPERATIONS_RUNBOOK](docs/OPERATIONS_RUNBOOK.md).
 
 Configuration: see [.env.example](.env.example).
 

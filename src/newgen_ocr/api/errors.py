@@ -55,6 +55,14 @@ HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.REVIEW_INCOMPLETE: 422,
     ErrorCode.INVALID_CORRECTION: 422,
     ErrorCode.EVIDENCE_NOT_FOUND: 404,
+    ErrorCode.JOB_NOT_FOUND: 404,
+    ErrorCode.JOB_CONFLICT: 409,
+    ErrorCode.JOB_ALREADY_ACTIVE: 409,
+    ErrorCode.IDEMPOTENCY_CONFLICT: 409,
+    ErrorCode.QUEUE_FULL: 503,
+    ErrorCode.TOO_MANY_JOBS: 429,
+    ErrorCode.WORKER_LOST: 500,
+    ErrorCode.DOCUMENT_NOT_READY: 409,
 }
 
 _CODE_FOR_HTTP_STATUS = {

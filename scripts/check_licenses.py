@@ -54,6 +54,9 @@ REVIEWED: dict[tuple[str, str], str] = {
     ("python-bidi", "0.6.11"): "GNU Library or Lesser General Public License (LGPL)",
     ("certifi", "2026.10.19"): "Mozilla Public License 2.0 (MPL 2.0)",
     ("tqdm", "4.70.1"): "MPL-2.0 AND MIT",
+    # Pure-Python build, unmodified and replaceable; loads the system libpq (PostgreSQL
+    # licence). Owner-approved 2026-10-23 (ADR-0029).
+    ("psycopg", "3.3.6"): "LGPL-3.0-only",
 }
 # NOTE: opencv-python-headless declares Apache-2.0 and passes, but the PyPI wheel bundles
 # LGPL FFmpeg and a vendor OpenSSL 1.1.1k build. Development only; production must use the

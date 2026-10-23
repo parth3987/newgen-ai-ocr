@@ -39,9 +39,11 @@ upload → file validation + quarantine → PDF text extraction or page renderin
 → PostgreSQL + local storage → JSON / CSV / Excel / API delivery
 ```
 
-Each stage is a pure-ish function over a typed page/document model and is invoked by an
-idempotent Celery task keyed on `(document_id, stage, input_hash)`, so retries never
-duplicate results.
+Each stage is a pure-ish function over a typed page/document model. In service mode
+(ADR-0029) a job runs the stages in order in a Celery worker. Each stage replaces its own
+output atomically and is recorded as completed, so a retry or a takeover after a crash
+skips completed stages and never duplicates results. One job at a time per document is
+enforced by the database. [implemented P9]
 
 ### Evidence model [partially implemented]
 
@@ -82,7 +84,9 @@ src/newgen_ocr/
     routes/documents.py upload, manifest, page text, page image          [implemented P2]
     routes/preprocessing.py profiles, runs, preprocessed images          [implemented P3]
     routes/ocr.py      engines, languages, OCR runs, comparison          [implemented P4-5]
-    routes/...         jobs, results, review                             [planned]
+    routes/jobs.py     job status, events, cancel, retry (service mode)  [implemented P9]
+    routes/review.py   review queue and workflow                         [implemented P8]
+    auth.py            bearer tokens on every router, ownership checks   [implemented P9]
   ingestion/
     formats.py         signature detection, extension check              [implemented P2]
     models.py          DocumentManifest / PageManifest / PageText        [implemented P2]
@@ -102,8 +106,11 @@ src/newgen_ocr/
     service.py         per-document runs, storage, audit                 [implemented P3]
     models.py          PreprocessingRun / PagePreprocessing / StepRecord [implemented P3]
   storage/local.py     originals / derived / staging / quarantine        [implemented P2]
-  db/                  SQLAlchemy models, Alembic migrations             [planned P8]
-  worker/              Celery app + idempotent tasks                     [planned P8]
+  db/                  SQLAlchemy models, Alembic migrations, SQL stores [implemented P9]
+  jobs/                job repo (claims, leases, reaper), runner, service,
+                       Celery app                                        [implemented P9]
+  worker.py            `python -m newgen_ocr.worker` (Celery + reaper)   [implemented P9]
+  services.py          one service graph for the API and the workers     [implemented P9]
   ocr/
     engine.py          OcrEngine protocol, reading order, page orientation [implemented P4]
     models.py          OcrLine / OcrPage / OcrRun / OcrComparison schema   [implemented P4]
@@ -165,9 +172,9 @@ Dependency rule: `api` and `worker` may depend on domain modules; domain modules
 | Configuration | `pydantic-settings`, `NGOCR_` prefix, immutable; explicit `Settings` injected into `create_app()` (no import-time global app) [implemented] |
 | Logging | JSON lines to stdout; metadata only, never document content; request id via contextvar; HTTP-client loggers capped at WARNING [implemented] |
 | Errors | Stable `ErrorCode` values in a uniform envelope; unhandled errors return a generic 500 and are logged with traceback [implemented] |
-| Health | Liveness (process up) vs readiness (dependencies usable) [implemented; readiness covers `data_dir` only] |
+| Health | Liveness (process up) vs readiness (dependencies usable) [implemented; readiness covers `data_dir`, and in service mode the database, its schema version and the broker] |
 | API docs | Swagger UI/ReDoc disabled (they load CDN assets); OpenAPI JSON at `/api/v1/openapi.json` [implemented] |
-| Auth | Not yet implemented. See DECISIONS.md open decision OD-6 [planned P8] |
+| Auth | Hashed bearer tokens with roles on every endpoint except health and the static review page; `submitter` reaches only its own documents (ADR-0027, ADR-0029) [implemented P9]; session sign-in [planned P10] |
 | Document storage | Local filesystem, originals separate from derived, atomic commit (ADR-0013) [implemented] |
 | Audit | JSONL lifecycle events without content or filenames (ADR-0014) [implemented] |
 | Untrusted parsing | PDFium (serialised by a lock) and Pillow restricted to the detected format; in-process for now (OD-12) [implemented] |

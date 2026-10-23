@@ -6,6 +6,7 @@ Run with: uvicorn newgen_ocr.api.app:create_app --factory
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from fastapi import FastAPI
 
@@ -17,35 +18,23 @@ from newgen_ocr.api.routes import (
     documents,
     extraction,
     health,
+    jobs,
     layout,
     ocr,
     preprocessing,
     review,
     review_ui,
 )
-from newgen_ocr.audit import AuditLog
-from newgen_ocr.auth.tokens import TokenStore
 from newgen_ocr.config import Settings, get_settings
-from newgen_ocr.extraction.extract import Options
-from newgen_ocr.extraction.schema import SchemaRegistry
-from newgen_ocr.extraction.service import ExtractionService
+from newgen_ocr.db.engine import safe_url
+from newgen_ocr.errors import AppError
 from newgen_ocr.imaging.runtime import check_opencv_build, configure_opencv
-from newgen_ocr.ingestion.service import IngestionService
-from newgen_ocr.layout.detector import PaddleLayoutModels
-from newgen_ocr.layout.service import LayoutPolicy, LayoutService
+from newgen_ocr.jobs.celery_app import dispatcher, make_celery, ping_broker
+from newgen_ocr.jobs.service import JobService
 from newgen_ocr.logging_config import configure_logging
-from newgen_ocr.ocr.engine import OcrEngine
-from newgen_ocr.ocr.model_store import ModelStore
-from newgen_ocr.ocr.paddle_engine import PaddleEngine
-from newgen_ocr.ocr.script_detect import ScriptDetector
-from newgen_ocr.ocr.service import HANDWRITING_ENGINE, OcrService, ReviewPolicy
-from newgen_ocr.ocr.tesseract_engine import TesseractEngine
-from newgen_ocr.preprocessing.service import PreprocessingService
-from newgen_ocr.review.acceptance import Policy
-from newgen_ocr.review.calibration import load_calibration
-from newgen_ocr.review.service import ReviewService
-from newgen_ocr.review.store import ReviewStore
-from newgen_ocr.storage.local import DocumentStore
+from newgen_ocr.services import Services, build_engines, build_services
+
+__all__ = ["build_engines", "create_app"]
 
 logger = logging.getLogger(__name__)
 
@@ -53,33 +42,32 @@ logger = logging.getLogger(__name__)
 MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
-def build_engines(settings: Settings) -> dict[str, OcrEngine]:
-    """Engines are cheap to construct; models load lazily on first use."""
-    models = ModelStore(settings.models_dir, settings.models_lock)
-    return {
-        "paddle": PaddleEngine(
-            models,
-            cache_dir=settings.data_dir / "cache" / "paddlex",
-            detection_model=settings.paddle_detection_model,
-            cpu_threads=settings.ocr_cpu_threads,
-            enable_mkldnn=settings.paddle_enable_mkldnn,
-        ),
-        "tesseract": TesseractEngine(
-            models,
-            command=settings.tesseract_cmd,
-            timeout_s=settings.ocr_page_timeout_s,
-            threads=settings.ocr_cpu_threads,
-        ),
-        HANDWRITING_ENGINE: PaddleEngine(
-            models,
-            cache_dir=settings.data_dir / "cache" / "paddlex",
-            detection_model=settings.paddle_detection_model,
-            cpu_threads=settings.ocr_cpu_threads,
-            enable_mkldnn=settings.paddle_enable_mkldnn,
-            name=HANDWRITING_ENGINE,
-            recognition_kind="handwriting_recognition",
-        ),
-    }
+def _owner_lookup(services: Services) -> Callable[[str], str | None]:
+    """Who submitted a document: the database in service mode, the manifest otherwise."""
+    if services.jobs is not None:
+        return services.jobs.owner
+
+    def from_manifest(document_id: str) -> str | None:
+        try:
+            return services.store.read_manifest(document_id).submitted_by
+        except (AppError, OSError, ValueError):
+            return None
+
+    return from_manifest
+
+
+def _services_mode(app: FastAPI, services: Services) -> None:
+    """Service mode: jobs go to the workers through Valkey (or run inline when eager)."""
+    app.state.jobs = None
+    app.state.broker_ping = None
+    if services.jobs is None:
+        return
+    if services.settings.jobs_eager:
+        app.state.jobs = JobService(services, dispatch=None)
+        return
+    celery = make_celery(services.settings)
+    app.state.jobs = JobService(services, dispatch=dispatcher(celery))
+    app.state.broker_ping = lambda: ping_broker(celery)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -100,85 +88,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # OTLP export are switched off explicitly (ADR-0008).
         telemetry={"tracing": False, "metrics": False, "logs": False, "auto_configure": False},
     )
-    store = DocumentStore(settings.data_dir)
-    audit = AuditLog(settings.data_dir)
+    services = build_services(settings)
+    app.state.services = services
     app.state.settings = settings
-    app.state.store = store
-    app.state.ingestion = IngestionService(settings, store, audit)
-    app.state.preprocessing = PreprocessingService(store, audit, settings.preprocessing_profiles)
-    engines = build_engines(settings)
-    app.state.ocr = OcrService(
-        store,
-        audit,
-        engines,
-        primary=settings.ocr_primary_engine,
-        fallback=settings.ocr_fallback_engine,
-        disagreement_threshold=settings.ocr_disagreement_threshold,
-        language_primary=dict(settings.ocr_language_primary),
-        detector=ScriptDetector(
-            ModelStore(settings.models_dir, settings.models_lock),
-            command=settings.tesseract_cmd,
-            timeout_s=settings.ocr_page_timeout_s,
-        ),
-        detect_orientation=settings.ocr_detect_orientation,
-        review_policy=ReviewPolicy(
-            min_page_confidence=settings.ocr_min_page_confidence,
-            min_line_confidence=settings.ocr_min_line_confidence,
-            handwriting_verified=frozenset(settings.ocr_handwriting_verified_languages),
-        ),
-    )
-    app.state.layout = LayoutService(
-        store,
-        audit,
-        PaddleLayoutModels(
-            ModelStore(settings.models_dir, settings.models_lock),
-            cache_dir=settings.data_dir / "cache" / "paddlex",
-            layout_model=settings.layout_model,
-            score_threshold=settings.layout_score_threshold,
-            cpu_threads=settings.ocr_cpu_threads,
-            enable_mkldnn=settings.paddle_enable_mkldnn,
-        ),
-        engines,
-        LayoutPolicy(
-            min_table_score=settings.layout_min_table_score,
-            ruling_check=settings.layout_ruling_check,
-        ),
-    )
-
-    app.state.audit = audit
-    registry = SchemaRegistry(settings.extraction_schema_dir)
-    options = Options(
-        day_first=settings.extraction_day_first,
-        mask_aadhaar=settings.extraction_mask_aadhaar,
-    )
-    app.state.extraction = ExtractionService(
-        store,
-        audit,
-        registry,
-        options,
-        min_evidence_confidence=settings.extraction_min_evidence_confidence,
-    )
-    app.state.tokens = TokenStore(settings.auth_tokens_path)
-    calibration = load_calibration(settings.review_calibration_file)
-    if (
-        settings.review_auto_accept
-        and calibration is not None
-        and calibration.dataset.kind == "synthetic"
-        and settings.environment == "production"
-        and not settings.review_allow_synthetic_calibration
-    ):
-        raise ValueError(
-            "review_auto_accept in production with a synthetic calibration: calibrate on real "
-            "documents, or set review_allow_synthetic_calibration knowingly"
-        )
-    app.state.review = ReviewService(
-        store,
-        ReviewStore(settings.data_dir),
-        audit,
-        registry,
-        Policy(calibration=calibration, auto_accept=settings.review_auto_accept, options=options),
-        require_second_person=settings.review_require_second_person,
-    )
+    app.state.store = services.store
+    app.state.audit = services.audit
+    app.state.tokens = services.tokens
+    app.state.ingestion = services.ingestion
+    app.state.preprocessing = services.preprocessing
+    app.state.ocr = services.ocr
+    app.state.layout = services.layout
+    app.state.extraction = services.extraction
+    app.state.review = services.review
+    app.state.db = services.db
+    app.state.owner_of = _owner_lookup(services)
+    _services_mode(app, services)
 
     # Starlette runs the last-added middleware first: request context wraps the body limit.
     app.add_middleware(
@@ -194,9 +118,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(extraction.router)
     app.include_router(review.router)
     app.include_router(review_ui.router)
+    if app.state.jobs is not None:
+        app.include_router(jobs.router)
 
     logger.info(
         "application created",
-        extra={"environment": settings.environment, "version": __version__},
+        extra={
+            "environment": settings.environment,
+            "version": __version__,
+            "mode": "service" if settings.service_mode else "local",
+            # Host, port and database name only: never the credentials.
+            "database": safe_url(settings.database_url) if settings.database_url else None,
+        },
     )
     return app

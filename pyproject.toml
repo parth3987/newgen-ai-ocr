@@ -18,7 +18,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 # Built-in extraction schemas (ADR-0026) and the review page (ADR-0028) ship with the package.
-newgen_ocr = ["py.typed", "extraction/schemas/*.json", "review/ui/*"]
+newgen_ocr = ["py.typed", "extraction/schemas/*.json", "review/ui/*", "db/migrations/*.mako"]
 
 # ---------------------------------------------------------------- Ruff
 [tool.ruff]
@@ -54,8 +54,9 @@ packages = ["newgen_ocr"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-# These ship no type information; their use is confined to newgen_ocr.pdf / newgen_ocr.ocr.
-module = ["pypdfium2", "pypdfium2.*", "paddle", "paddle.*", "paddlex", "paddlex.*", "paddleocr", "paddleocr.*", "openpyxl", "openpyxl.*"]
+# These ship no type information; their use is confined to newgen_ocr.pdf / newgen_ocr.ocr
+# (and celery to newgen_ocr.jobs.celery_app / newgen_ocr.worker).
+module = ["pypdfium2", "pypdfium2.*", "paddle", "paddle.*", "paddlex", "paddlex.*", "paddleocr", "paddleocr.*", "openpyxl", "openpyxl.*", "celery", "celery.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

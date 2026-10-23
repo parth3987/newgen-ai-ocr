@@ -11,10 +11,21 @@ disabled (DECISIONS.md ADR-0005).
   hex id. Every response, including errors, carries `X-Request-ID`.
 - **Caching:** every response carries `Cache-Control: no-store` and
   `X-Content-Type-Options: nosniff`.
-- **Authentication:** the review endpoints (`/api/v1/review/…`, `/api/v1/auth/whoami`)
-  require `Authorization: Bearer <token>` with a sufficient role (ADR-0027; REVIEW.md). The
-  other endpoints are not authenticated yet (OD-6): do not expose the service beyond a
-  trusted network until Phase 9 adds it.
+- **Authentication:** every endpoint except `/health/…` and the static `/review` page
+  requires `Authorization: Bearer <token>` (ADR-0027, ADR-0029). Roles, lowest first:
+  `submitter` (upload; read and re-run **its own** documents and jobs), `viewer` (read
+  everything), `reviewer`, `approver`, `admin` (REVIEW.md). A document or job a submitter
+  may not see is reported as not found (`404`), never as forbidden.
+- **Modes:** in **local mode** (no database or broker configured; development only) uploads
+  and stage runs are processed in the request and return `201` with the result. In
+  **service mode** (PostgreSQL + Valkey; required in staging and production) they are queued
+  and return `202` with the job (see "Jobs"). Read endpoints are the same in both modes.
+- **Pagination:** list endpoints take `limit` (1–200, default 50) and `offset` (default 0)
+  and return `{"items", "total", "limit", "offset"}`.
+- **Idempotency:** `POST` endpoints that create jobs accept an `Idempotency-Key` header
+  (1–128 characters from `[A-Za-z0-9._:-]`). Repeating a request with the same key (per
+  user) returns the original job with `"duplicate": true`; using the key for a different
+  request returns `409 IDEMPOTENCY_CONFLICT`.
 - **Request size:** bodies larger than `NGOCR_MAX_UPLOAD_BYTES` + 64 KiB are refused with
   `413 FILE_TOO_LARGE`, either immediately (from Content-Length) or as soon as the streamed
   body exceeds the limit.
@@ -71,6 +82,14 @@ Messages never contain document content or submitted values.
 | `REVIEW_INCOMPLETE` | 422 | Approval refused: undecided values, an invalid corrected record, or failing checks not acknowledged (with a comment) |
 | `INVALID_CORRECTION` | 422 | A corrected value fails its field's format or checksum rules, or the location does not exist |
 | `EVIDENCE_NOT_FOUND` | 404 | No source evidence for that field, candidate or cell (e.g. a missing value) |
+| `JOB_NOT_FOUND` | 404 | Unknown job id, or a job of another user (for submitters) |
+| `JOB_CONFLICT` | 409 | The job's state does not allow it: cancelling a finished job, retrying one that is not failed or cancelled, or retrying a rejected upload |
+| `JOB_ALREADY_ACTIVE` | 409 | The document already has a queued or running job; wait for it or cancel it |
+| `IDEMPOTENCY_CONFLICT` | 409 | The `Idempotency-Key` was already used by this user for a different request |
+| `QUEUE_FULL` | 503 | `NGOCR_MAX_QUEUED_JOBS` jobs are already waiting; retry later |
+| `TOO_MANY_JOBS` | 429 | The user has `NGOCR_MAX_ACTIVE_JOBS_PER_USER` queued or running jobs; retry later |
+| `WORKER_LOST` | 500 | (job `error_code` only) The worker stopped during the last allowed attempt |
+| `DOCUMENT_NOT_READY` | 409 | The upload has not been ingested yet (or was rejected); see `…/status` |
 
 Pages that cannot be recognised reliably are **not** errors. They come back in the run with
 `status: "unsupported"` and/or `review.needs_review: true` (see below and LANGUAGE_SUPPORT.md).
@@ -86,16 +105,28 @@ Codes are stable: they are never renamed or reused.
 `200` → `{"status": "ready", "checks": {"data_dir_writable": true}}`
 `503` → `{"status": "not_ready", "checks": {"data_dir_writable": false}}`
 
+In service mode `checks` also has `database` (reachable), `database_schema_current` (at
+the latest migration) and `broker` (Valkey reachable). No authentication.
+
 ## Documents
 
 ### `POST /api/v1/documents`
-`multipart/form-data` with one file part named `file` and an optional text field `profile`
-(preprocessing profile; default `NGOCR_DEFAULT_PREPROCESSING_PROFILE`, normally `standard`).
-An unknown profile is rejected with `422 UNKNOWN_PROFILE` before anything is stored.
-Processing is synchronous for now (ADR-0012). After the document is stored, the profile is run
-best-effort: a preprocessing failure is audited but does not fail the upload.
+Role: submitter. `multipart/form-data` with one file part named `file` and an optional text
+field `profile` (preprocessing profile; default `NGOCR_DEFAULT_PREPROCESSING_PROFILE`,
+normally `standard`). An unknown profile is rejected with `422 UNKNOWN_PROFILE` before
+anything is stored. Size, signature and extension are checked in the request in both modes.
 
-`201` → `DocumentManifest`:
+**Local mode:** the document is processed in the request (ADR-0012), then the profile is
+run best-effort: a preprocessing failure is audited but does not fail the upload.
+
+**Service mode:** the whole pipeline is queued: ingest, preprocessing, OCR, layout,
+extraction, then the review queue. Extra form fields: `engine` (`auto`, `paddle`,
+`tesseract`), `languages` (comma-separated codes, or `auto`), `handwriting`, `compare`
+(default `true`), `document_type` (default `auto`) and `force`. The same file from the same
+user returns the earlier document's latest job (`"duplicate": true`) unless `force=true`.
+`202` → `JobSubmitted` (see "Jobs"), with `Location: /api/v1/jobs/{id}`.
+
+`201` (local mode) → `DocumentManifest`:
 
 ```json
 {
@@ -151,6 +182,24 @@ unreliable. `sharpness` and `noise_sigma` are `null` when not measurable (e.g. b
 Errors: `413 FILE_TOO_LARGE`, `415 UNSUPPORTED_FORMAT | FORMAT_MISMATCH`,
 `422 EMPTY_FILE | CORRUPT_DOCUMENT | ENCRYPTED_DOCUMENT | TOO_MANY_PAGES | PAGE_TOO_LARGE |
 VALIDATION_ERROR`.
+
+### `GET /api/v1/documents?status=&limit=&offset=`
+Role: submitter (own documents) or viewer (all). Newest first. `status`: `received` (queued,
+not yet ingested), `ready` or `rejected`. → `{"items": [DocumentSummary], "total", "limit",
+"offset"}`.
+
+### `GET /api/v1/documents/{document_id}/status`
+→ `DocumentSummary`:
+
+```json
+{"id": "8231aa86…", "status": "ready", "sha256": "…", "size_bytes": 1456, "format": "png",
+ "page_count": 1, "submitted_by": "alice", "error_code": null,
+ "created_at": "…", "updated_at": "…", "latest_job": {"id": "1b21…", "status": "succeeded", …}}
+```
+
+A rejected upload has `status: "rejected"` and the ingestion error in `error_code` (for
+example `CORRUPT_DOCUMENT`). In local mode every stored document is `ready` and
+`latest_job` is null.
 
 ### `GET /api/v1/documents/{document_id}`
 `200` → `DocumentManifest`. `404 DOCUMENT_NOT_FOUND`; `422 VALIDATION_ERROR` if the id is not
@@ -492,6 +541,72 @@ table's records instead of the fields. `200` with `Content-Disposition: attachme
 | `checks[].status` | `passed`, `failed`, `not_applicable` (inputs missing: nothing assumed) |
 | `validation.issues[].code` | `missing_required`, `invalid_value`, `field_ambiguous`, `field_conflict`, `field_invalid`, `cell_ambiguous`, `cell_invalid` |
 | `review.reasons` | `document_type_unknown`, `document_type_ambiguous`, `required_field_missing`, `field_ambiguous`, `field_conflict`, `field_invalid`, `table_not_found`, `table_value_invalid`, `check_failed`, `low_confidence_evidence`, `source_needs_review` |
+
+## Jobs (Phase 9, service mode)
+
+Mounted only in service mode (ADR-0029). The stage endpoints `POST …/preprocessing/{profile}`,
+`…/ocr`, `…/layout` and `…/extraction` keep their request bodies but return `202` with a
+job instead of running in the request. A stage job also runs the stages after it:
+
+| Job `kind` | Stages |
+|---|---|
+| `pipeline` (an upload) | `ingest`, `preprocessing`, `ocr`, `layout`, `extraction` |
+| `preprocessing` | `preprocessing` |
+| `ocr` | `ocr`, `layout`, `extraction` |
+| `layout` | `layout`, `extraction` |
+| `extraction` | `extraction` |
+
+The OCR engine name (`auto`, `paddle` or `tesseract`) is also the name of the OCR, layout
+and extraction runs the job writes. Extraction results are queued for review as in Phase 8.
+
+| Endpoint | Role | Result |
+|---|---|---|
+| `POST /api/v1/documents/{document_id}/jobs` `{"kind", "params"}` | submitter (own document) | `202` `JobSubmitted`. The document must be `ready` (`409 DOCUMENT_NOT_READY`) |
+| `GET /api/v1/jobs?status=&document_id=&limit=&offset=` | submitter (own) / viewer (all) | `{"items": [Job], …}`, newest first; `status` may repeat |
+| `GET /api/v1/jobs/{job_id}` | submitter (own) / viewer | `Job` |
+| `GET /api/v1/jobs/{job_id}/events` | submitter (own) / viewer | `[JobEvent]`, oldest first |
+| `POST /api/v1/jobs/{job_id}/cancel` | the submitter, or admin | `Job`. Queued: cancelled at once. Running: `cancel_requested`, stops before its next stage |
+| `POST /api/v1/jobs/{job_id}/retry` | the submitter, or admin | `Job`, queued again with fresh attempts; resumes at the first stage not completed |
+
+`params` (all optional): `profile`, `engine`, `languages`, `compare` (default `true`),
+`handwriting`, `document_type` (default `auto`).
+
+**`Job`:**
+
+```json
+{"id": "1b211e6f…", "document_id": "8231aa86…", "kind": "pipeline", "status": "running",
+ "params": {"profile": null, "engine": "auto", "languages": ["en"], "compare": true,
+            "handwriting": false, "document_type": "auto", "filename": "inv.png",
+            "content_type": "image/png"},
+ "stages": ["ingest", "preprocessing", "ocr", "layout", "extraction"],
+ "completed_stages": ["ingest", "preprocessing"], "current_stage": "ocr",
+ "attempts": 1, "max_attempts": 3, "cancel_requested": false,
+ "error_code": null, "error_message": null, "submitted_by": "alice",
+ "idempotency_key": "order-42", "created_at": "…", "started_at": "…",
+ "finished_at": null, "updated_at": "…"}
+```
+
+`JobSubmitted` is `{"job": Job, "duplicate": false}`.
+
+| `status` | Meaning |
+|---|---|
+| `queued` | Waiting for a worker, or for its retry backoff |
+| `running` | A worker holds it (its lease is renewed while it runs) |
+| `succeeded` | Every stage completed |
+| `failed` | `error_code` says why; `error_message` names the stage and code, never document content. Recoverable with `retry` (except a rejected upload) |
+| `cancelled` | Stopped on request; completed stages keep their results |
+
+**Failures.** Errors caused by the input or request (for example `CORRUPT_DOCUMENT`,
+`UNSUPPORTED_LANGUAGE`, `LAYOUT_UNAVAILABLE`) fail the job at once, because a retry cannot
+help. Unexpected errors (`INTERNAL_ERROR`, `OCR_TIMEOUT`) are retried after 30 s, 60 s,
+120 s and so on (at most 10 minutes), up to `max_attempts`. If a worker dies, its job is
+taken over when its lease expires (`lease_expired` event); after the last attempt it fails
+with `WORKER_LOST`.
+
+**`JobEvent`:** `{"ts", "event", "stage", "attempt", "detail"}`. Events: `submitted`, `started`,
+`stage_started`, `stage_completed`, `retry_scheduled`, `lease_expired`, `redispatched`,
+`cancel_requested`, `cancelled`, `retried`, `succeeded`, `failed`. `detail` holds only ids,
+counts and codes.
 
 ## Verification and review (Phase 8)
 

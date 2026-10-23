@@ -10,6 +10,10 @@ from fastapi.testclient import TestClient
 
 from newgen_ocr.api.app import create_app
 from newgen_ocr.config import Settings
+from newgen_ocr.evaluation.client import authorized
+
+# Database fixtures for the service-mode tests (skipped without NGOCR_TEST_DATABASE_URL).
+pytest_plugins = ["tests.fixtures.services"]
 
 
 @pytest.fixture
@@ -27,7 +31,7 @@ def app(settings: Settings) -> FastAPI:
 @pytest.fixture
 def client(app: FastAPI) -> Iterator[TestClient]:
     with TestClient(app, raise_server_exceptions=False) as c:
-        yield c
+        yield authorized(c, user="tester")
 
 
 ROOT = Path(__file__).resolve().parents[1]

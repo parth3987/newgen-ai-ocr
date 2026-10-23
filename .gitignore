@@ -80,3 +80,6 @@ evaluation/layout/generated/
 evaluation/extraction/generated/
 evaluation/calibration/generated/
 evaluation/fonts/
+
+# Service passwords (make services-secrets); never committed
+deploy/secrets/

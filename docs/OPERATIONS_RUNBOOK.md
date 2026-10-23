@@ -1,7 +1,8 @@
 # Operations Runbook
 
-Status: development stage. Only the API process exists. Compose services, backups and
-recovery are added in Phase 9 and Phase 11.
+Status: development stage. The API and the worker run from the virtual environment;
+PostgreSQL and Valkey run from `deploy/compose.yaml`. Application containers, backups and
+recovery come in Phase 11.
 
 ## Start / stop (development)
 
@@ -12,6 +13,44 @@ make run           # http://127.0.0.1:8000, Ctrl+C to stop
 ```
 
 Equivalent: `uvicorn newgen_ocr.api.app:create_app --factory --host 127.0.0.1 --port 8000 --no-server-header`.
+
+## Service mode (PostgreSQL, Valkey, workers; ADR-0029)
+
+Required in staging and production. On Ubuntu hosts, install the OS libpq once:
+`sudo apt install libpq5` (OD-44).
+
+```bash
+make services-up                 # random passwords in deploy/secrets/ (once), then start
+export NGOCR_DATABASE_URL="postgresql+psycopg://ngocr:$(cat deploy/secrets/postgres_password)@127.0.0.1:55432/ngocr"
+export NGOCR_BROKER_URL="redis://:$(cat deploy/secrets/valkey_password)@127.0.0.1:56379/0"
+python -m newgen_ocr.db upgrade  # migrations (also after every upgrade of the code)
+python -m newgen_ocr.auth create --user ingest-bot --role submitter
+make run                         # the API: uploads now return 202 with a job
+python -m newgen_ocr.worker      # one or more workers (same environment and data volume)
+make services-down               # stop; data volumes are kept
+```
+
+The 127.0.0.1 ports come from `deploy/compose.dev.yaml` and are for development only.
+In staging and production, use `deploy/compose.yaml` alone: PostgreSQL and Valkey then
+have no published ports, and only containers on the `backend` network reach them.
+Export the URLs in the service's environment (a secrets file or systemd credentials),
+never in a shell history or in source.
+
+**Migrations.** Use `python -m newgen_ocr.db upgrade` before starting new code, `current`
+to show the revision, and `downgrade <rev>` to roll back. Readiness reports
+`database_schema_current: false` until the database matches the code.
+
+**Workers.** Each worker runs `NGOCR_WORKER_CONCURRENCY` processes (default 1; OCR is
+CPU-bound, so set `NGOCR_OCR_CPU_THREADS` and `NGOCR_OPENCV_THREADS` so that processes ×
+threads ≤ cores). Workers need the same data volume as the API.
+- **Stopping.** `SIGTERM` stops a worker after its current job. A worker that is killed or
+  crashes is harmless: its job is taken over when its lease (`NGOCR_JOB_LEASE_S`) expires.
+- **Reaper.** Every worker reaps every `NGOCR_JOB_REAP_INTERVAL_S`. To run a pass by hand:
+  `python -m newgen_ocr.jobs reap`.
+
+**Failed jobs.** List them with `GET /api/v1/jobs?status=failed`. `GET
+/api/v1/jobs/{id}/events` shows what happened. Fix the cause, then `POST
+/api/v1/jobs/{id}/retry`: the job resumes after its completed stages.
 
 ## Configuration
 
@@ -50,7 +89,17 @@ All variables use the `NGOCR_` prefix. See `.env.example`.
 | `NGOCR_EXTRACTION_DAY_FIRST` | `true` | Read numeric dates as DD/MM/YYYY; `false` reports dates valid both ways as ambiguous |
 | `NGOCR_EXTRACTION_MASK_AADHAAR` | `true` | Mask Aadhaar numbers to the last 4 digits in results and exports. Turn off only with a documented legal basis |
 | `NGOCR_EXTRACTION_MIN_EVIDENCE_CONFIDENCE` | 0.70 | Extracted values read from OCR below this confidence are routed to review |
-| `NGOCR_AUTH_TOKENS_FILE` | `<data_dir>/auth/tokens.json` | Hashed review tokens (`python -m newgen_ocr.auth`) |
+| `NGOCR_AUTH_TOKENS_FILE` | `<data_dir>/auth/tokens.json` | Hashed tokens in local mode (`python -m newgen_ocr.auth`); service mode uses the database |
+| `NGOCR_DATABASE_URL` | unset | `postgresql+psycopg://user:pass@host:5432/db`. Set with `NGOCR_BROKER_URL` for service mode (required in staging/production) |
+| `NGOCR_BROKER_URL` | unset | `redis://:pass@host:6379/0` (Valkey) |
+| `NGOCR_JOBS_EAGER` | `false` | Run jobs inside the API process (tests and evaluation only; refused in production) |
+| `NGOCR_JOB_MAX_ATTEMPTS` | 3 | Attempts per job for unexpected errors and lost workers |
+| `NGOCR_JOB_LEASE_S` | 600 | A running job's lease; renewed every third of it while the job runs |
+| `NGOCR_JOB_REAP_INTERVAL_S` | 60 | How often each worker recovers expired leases and lost messages |
+| `NGOCR_BROKER_VISIBILITY_TIMEOUT_S` | 7200 | Valkey redelivers unacknowledged messages after this; must exceed the longest job |
+| `NGOCR_MAX_QUEUED_JOBS` | 1000 | Uploads are refused (`503 QUEUE_FULL`) beyond this many queued jobs |
+| `NGOCR_MAX_ACTIVE_JOBS_PER_USER` | 50 | Per-user limit on queued and running jobs (`429 TOO_MANY_JOBS`) |
+| `NGOCR_WORKER_CONCURRENCY` | 1 | Processes per worker |
 | `NGOCR_REVIEW_CALIBRATION_FILE` | unset | Calibration from `scripts/calibrate_review.py`; without one no value is verified |
 | `NGOCR_REVIEW_AUTO_ACCEPT` | `false` | Accept fully verified documents without a person (needs a calibration file) |
 | `NGOCR_REVIEW_ALLOW_SYNTHETIC_CALIBRATION` | `false` | Let production auto-accept with a synthetic calibration (not recommended) |
@@ -78,6 +127,11 @@ data/review/       items/<document>/<layout_run>.json (+ .r<N>.json earlier revi
 data/auth/         tokens.json (hashes only, 0600)
 data/audit/        audit.jsonl
 ```
+
+In service mode, `data/review/`, `data/auth/` and `data/audit/` are not used: tokens, review
+items, revisions, history and audit events are in PostgreSQL, with documents, pages, jobs,
+job events and extraction results. A queued upload waits in `data/quarantine/<id>.part`
+until a worker ingests it.
 
 ### Review operations
 
@@ -126,7 +180,13 @@ is an orphan from a crash between the two commit steps. Report it before deletin
 | Extraction `unclassified` | No document type reached its score, or two were too close | See `classification.scores`/`evidence`; pass `document_type` explicitly, or add keywords/a template |
 | A value is `ambiguous`/`conflict` | Several candidates or readings; see `candidates` | Review; if systematic, add labels or sections to the schema |
 | Intermittent `RuntimeError: std::exception` from Paddle | Paddle called from more than one thread (fixed: ADR-0020 addendum) | Must not recur; report with the request ID |
-| Slow uploads under load | Ingestion is synchronous and PDFs are processed one at a time (ADR-0012) | Expected until Phase 9 moves processing to workers |
+| Slow uploads under load | Local mode processes uploads in the request (ADR-0012) | Use service mode: uploads return 202 and workers do the processing |
+| `/health/ready` 503 with `database: false` or `broker: false` | PostgreSQL or Valkey down, or wrong URL or password | `make services-up` (development); check the service's environment and `deploy/secrets/` |
+| `database_schema_current: false` | Migrations not applied for this code version | `python -m newgen_ocr.db upgrade` |
+| `psycopg` import error: libpq not found | OS libpq missing | `sudo apt install libpq5` (OD-44) |
+| Jobs stay `queued` | No worker running, or workers cannot reach Valkey | Start `python -m newgen_ocr.worker`; check its logs. Queued jobs are safe: they run once a worker starts |
+| A job is `running` but nothing happens | Its worker died | It is requeued when its lease expires (`NGOCR_JOB_LEASE_S`) and after the next reaper pass. After the last attempt it fails with `WORKER_LOST`; then retry it |
+| `JOB_ALREADY_ACTIVE` | The document already has a queued or running job | Wait for it, or cancel it, then submit again |
 
 ## Logs
 
@@ -143,4 +203,6 @@ under `preprocessed/` after a crash can be deleted while the service is idle.
 
 ## Backups and recovery
 
-To be defined in Phase 5 (PostgreSQL dumps + `data/` volume snapshots) and drilled in Phase 11.
+Not automated yet (OD-42). Until then, in service mode back up PostgreSQL (`pg_dump`) and the
+data volume together: the database names files on the volume. Restores are drilled in
+Phase 11.

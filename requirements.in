@@ -23,3 +23,12 @@ paddleocr==3.7.0
 paddlepaddle==3.2.2
 # Phase 7: structured extraction export (Excel). MIT; pure Python (ADR-0026).
 openpyxl
+# Phase 9: database, migrations and background jobs (ADR-0029).
+# psycopg is LGPL-3.0, used unmodified as a replaceable package (licence review in
+# docs/THIRD_PARTY_NOTICES.md; owner-approved 2026-10-23). Pure-Python build loading the
+# operating system's libpq (apt libpq5): psycopg-binary bundles end-of-life CentOS 7
+# libraries (Kerberos, PCRE, SASL) and is not used (ADR-0029).
+sqlalchemy
+alembic
+psycopg
+celery[redis]

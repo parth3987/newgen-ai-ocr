@@ -27,7 +27,12 @@ from pathlib import Path
 from typing import Any
 
 from newgen_ocr.errors import AppError, ErrorCode
-from newgen_ocr.review.models import ChainVerification, HistoryEvent, ReviewItem
+from newgen_ocr.review.models import (
+    ChainVerification,
+    HistoryEvent,
+    ReviewItem,
+    ReviewItemStatus,
+)
 
 _DOCUMENT_ID = re.compile(r"^[0-9a-f]{32}$")
 _RUN_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -100,6 +105,27 @@ class ReviewStore:
         for path in sorted(self.items_dir.glob("*/*.json")):
             if ".r" not in path.stem and not path.name.startswith("."):
                 yield ReviewItem.model_validate_json(path.read_bytes())
+
+    def query(
+        self,
+        statuses: set[ReviewItemStatus],
+        schema_id: str | None,
+        reason: str | None,
+        assigned_to: str | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[int, list[ReviewItem]]:
+        """Matching items by priority (highest first), then age, and their total count."""
+        matching = [
+            i
+            for i in self.items()
+            if i.status in statuses
+            and (schema_id is None or i.schema_id == schema_id)
+            and (reason is None or reason in i.reasons)
+            and (assigned_to is None or i.assigned_to == assigned_to)
+        ]
+        matching.sort(key=lambda i: (-i.priority, i.created_at))
+        return len(matching), matching[offset : offset + limit]
 
     # ------------------------------------------------------------ history
 
