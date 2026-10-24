@@ -12,6 +12,11 @@ scanned PDFs and handwriting recognition.
 
 ## Status
 
+Phase 10 (React frontend) is complete. The web application at `/app` covers sign-in, batch
+upload with live progress, documents and results with search, page previews and OCR text,
+extracted fields and tables, source-linked review and correction, exports, and admin
+monitoring and audit views. It calls only this service's API and loads nothing external
+(see [ADR-0030](docs/DECISIONS.md)).
 Phase 9 (database, background jobs and APIs) is complete. In service mode, PostgreSQL holds
 documents, jobs, results, review and audit records. Celery workers on Valkey run the
 pipeline, and uploads return `202` with a job. Workers that crash are recovered from leases,
@@ -50,7 +55,7 @@ throughput have been measured only on a synthetic corpus so far (see
 ## Quick start
 
 Requirements: [uv](https://docs.astral.sh/uv/), GNU make, `tesseract-ocr` and `libpq5`
-(apt); Podman or Docker for `make services-up` and `make secrets`.
+(apt); Node 20+ for `make frontend`; Podman or Docker for `make services-up` and `make secrets`.
 
 ```bash
 make venv              # Python 3.11 venv from hash-pinned locks
@@ -69,8 +74,9 @@ curl -H "$AUTH" -o out.xlsx \
      'localhost:8000/api/v1/documents/<document_id>/extraction/auto/export?format=xlsx'
 ```
 
-Service mode (PostgreSQL, Valkey and workers; uploads queue the whole pipeline): see
-"Service mode" in [OPERATIONS_RUNBOOK](docs/OPERATIONS_RUNBOOK.md).
+Service mode (PostgreSQL, Valkey and workers; uploads queue the whole pipeline) and the web
+application (`make frontend`, then `http://127.0.0.1:8000/app/`): see "Service mode" and
+"Web application" in [OPERATIONS_RUNBOOK](docs/OPERATIONS_RUNBOOK.md).
 
 Configuration: see [.env.example](.env.example).
 

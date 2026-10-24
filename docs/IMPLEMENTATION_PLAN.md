@@ -320,13 +320,53 @@ Open:
 - backups and retention (OD-42);
 - libpq on hosts (OD-44).
 
-## Phase 10: Full review application
+## Phase 10: React frontend (**complete**, 2026-10-23)
 
-A React + TypeScript review application served locally (no CDN assets), with session
-sign-in (OD-35). It replaces the minimal `/review` page:
-- page viewer with layout overlays and side-by-side engine readings;
-- keyboard-driven correction and batch confirmation;
-- reviewer workload and correction-pattern dashboards.
+Defined by the owner on 2026-10-23. The owner's choices:
+- password sign-in with server-side sessions;
+- a minimal React stack with no component library;
+- the build made at staging and shipped in the wheel.
+
+Delivered (ADR-0030):
+- `frontend/`: React 19, TypeScript and Vite, with Vitest tests;
+- `newgen_ocr/auth/users.py`, holding users, sessions and CSRF;
+- the sign-in, admin and search routes;
+- migration 0002;
+- `newgen_ocr/api/routes/webapp.py`, which serves `/app` under a strict CSP;
+- `make frontend`, `make frontend-test` and `scripts/check_npm_licenses.py`.
+
+| Feature | Where |
+|---|---|
+| Login and authorised access | Sign-in page; password sessions; role-aware navigation (API-enforced) |
+| Upload and batch submission | Upload: several files at once, three in parallel, progress per file, idempotency key per file, duplicate notice |
+| Processing status and progress | Documents list and document page: stage progress refreshed while active, job history, cancel and retry |
+| Document and extraction-result lists | Documents, Results (paginated) |
+| Page preview and extracted text | Document → Pages and text: page image, OCR lines with confidence (low ones highlighted), quality flags |
+| Table and structured-field display | Document → Extracted data: fields with status, confidence and source text; tables; checks; validation |
+| Source-linked verification and correction | Review item: crop beside each value, page with the evidence highlighted, gate results, corrections, approve and reject |
+| Search and filtering | Documents (filename or id, status, submitter, dates), Results (any extracted value, type, result, review status), Review (view, reason), Audit (event, actor, document, date) |
+| JSON, CSV and Excel export | Document → Extracted data → JSON / CSV / Excel |
+| Administrative monitoring and audit views | Admin: overview (queue, workers, running jobs, failures, sessions), audit log, users |
+
+| Acceptance criterion | Evidence | Status |
+|---|---|---|
+| The frontend uses the internal API only | The client calls relative `/api/v1/…` paths on its own origin. A unit test checks every call goes to `/api/v1/`. The CSP sets `connect-src 'self'` | Met |
+| No external CDN, analytics or hosted AI services | No such dependency (6 shipped packages: React and React Router). The built `index.html` loads only `/app/assets/…`; a test checks for no external URL. CSP `default-src 'none'`; system fonts | Met |
+| Error and review states are clear | Every error shows the API's message and request reference. Statuses are badges with words, not colour alone. Failed jobs show the code and a retry; rejected uploads say why; review items show reasons, gate results, unresolved locations and conflicts (reloaded on a stale version). Pages say when nothing is there yet | Met |
+| Access-control rules are enforced by the backend | `test_access_rules_are_enforced_by_the_api`: as each role, other users' documents and jobs return `404`, and review, admin, user creation and job control return `403`. CSRF, session expiry, and disabling or changing a user are tested on the API. The UI only hides what the API refuses | Met |
+
+End to end on the live stack (API, worker, PostgreSQL, Valkey, real models), driven the way
+the application calls the API:
+- cookie sign-in, then upload (`202`); the pipeline finished in 19 s;
+- the invoice classified, with the correct grand total;
+- page image, and JSON, CSV and Excel exports;
+- both searches; a review crop and claim; a change without CSRF refused;
+- the admin overview and audit; logout.
+
+Open:
+- multi-factor sign-in or SSO (OD-45);
+- the web application needs service mode (OD-46);
+- no automated real-browser test (OD-47).
 
 ## Phase 11: Offline deployment and hardening
 

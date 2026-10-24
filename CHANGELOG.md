@@ -4,6 +4,48 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 10: React frontend (2026-10-23)
+- **Web application** at `/app` (React 19, TypeScript, Vite). It covers:
+  - sign-in;
+  - document list with search (filename or id, status, submitter, dates) and live
+    processing progress;
+  - batch upload, with per-file progress and an idempotency key per file;
+  - a document page with job stages, history, cancel and retry, page preview with the OCR
+    text and low-confidence lines, extracted fields with source text, tables, checks,
+    validation, JSON/CSV/Excel export and re-processing;
+  - result search, including by extracted value;
+  - the review queue, and review items with source crops next to values, the page with
+    evidence highlighted, corrections, approval and rejection;
+  - administration: overview, audit log and users;
+  - an account page for changing your password.
+  It replaces the Phase 8 `/review` page, which now redirects.
+- **Password sign-in** (ADR-0030):
+  - scrypt hashes with lockout;
+  - server-side sessions in PostgreSQL, behind HttpOnly, SameSite=Strict, Secure cookies,
+    with idle and absolute timeouts;
+  - CSRF tokens;
+  - role and status re-read on every request.
+  New commands: `python -m newgen_ocr.auth user-create|user-list|user-password|user-disable|user-enable`.
+  Migration 0002 adds users, sessions and document filenames.
+- **New endpoints:**
+  - `POST /api/v1/auth/login|logout|password`, `GET /api/v1/auth/session`;
+  - `GET /api/v1/extractions`;
+  - `GET /api/v1/admin/overview|audit|users`, `POST /api/v1/admin/users`,
+    `PATCH /api/v1/admin/users/{name}`.
+  Document search filters are new. So are six error codes: `LOGIN_FAILED`, `CSRF_FAILED`,
+  `SIGN_IN_UNAVAILABLE`, `WEAK_PASSWORD`, `USER_EXISTS`, `USER_NOT_FOUND`.
+- **Only the internal API, nothing external.** The app is served from the same origin under
+  a strict CSP (`default-src 'none'`, `'self'` only). It loads no CDN, fonts, analytics or
+  AI service. Access rules stay in the API and are tested there.
+- **Frontend supply chain:**
+  - 141 npm packages pinned with integrity hashes, all at least 14 days old, with install
+    scripts disabled;
+  - an npm licence check and `npm audit` in the gate;
+  - 6 shipped packages, all MIT;
+  - built at staging (`make frontend`); production never runs Node.
+- **Tests:** 12 API tests (sign-in, CSRF, sessions, access rules, search, admin and the
+  served application) and 14 frontend unit tests. Version 0.10.0.
+
 ### Phase 9: Database, background jobs and APIs (2026-10-23)
 - **Service mode** (ADR-0029), used when `NGOCR_DATABASE_URL` and `NGOCR_BROKER_URL` are
   set; staging and production require it. Local mode is unchanged, for development.

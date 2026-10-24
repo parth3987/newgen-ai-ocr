@@ -34,7 +34,15 @@ and by an `internal: true` Docker network for the api/worker/db/broker services.
 - System package for the bundle: `tesseract-ocr` 5.5.0 (Ubuntu apt; download the `.deb`
   files at staging with `apt-get download`).
 
-## 4. Verification [planned P10]
+## 3a. Web application [implemented P10]
+
+- Staging: `make frontend` installs the frontend dependencies with `npm ci` from
+  `frontend/package-lock.json` (sha512 integrity, install scripts disabled) and builds into
+  `src/newgen_ocr/webapp/dist/`. Build the wheel after it.
+- Production: no Node and no npm. The API serves the built files under `/app`, and the
+  Content-Security-Policy allows only this origin.
+
+## 4. Verification [planned P11]
 
 An automated test on the production host attempts outbound connections (DNS, HTTPS) and must
 observe them being blocked, then runs an end-to-end OCR job successfully.

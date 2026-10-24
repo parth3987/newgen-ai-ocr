@@ -57,6 +57,40 @@ class ApiToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(Timestamp)
 
 
+class User(Base):
+    """A person who signs in to the web application (ADR-0030). Integrations use tokens."""
+
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('submitter', 'viewer', 'reviewer', 'approver', 'admin')", name="role"
+        ),
+    )
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16))
+    password_hash: Mapped[str] = mapped_column(String(256))  # scrypt$n$r$p$salt$hash
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(Timestamp)
+    created_at: Mapped[datetime] = mapped_column(Timestamp)
+    password_changed_at: Mapped[datetime] = mapped_column(Timestamp)
+    last_login_at: Mapped[datetime | None] = mapped_column(Timestamp)
+
+
+class UserSession(Base):
+    """A signed-in browser. Only the SHA-256 of the cookie value is stored."""
+
+    __tablename__ = "sessions"
+
+    id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user: Mapped[str] = mapped_column(ForeignKey("users.name", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(Timestamp)
+    last_seen_at: Mapped[datetime] = mapped_column(Timestamp)
+    expires_at: Mapped[datetime] = mapped_column(Timestamp, index=True)  # absolute limit
+    revoked_at: Mapped[datetime | None] = mapped_column(Timestamp)
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -66,6 +100,7 @@ class Document(Base):
     sha256: Mapped[str] = mapped_column(String(64), index=True)
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     format: Mapped[str | None] = mapped_column(String(8))
+    filename: Mapped[str | None] = mapped_column(String(255))  # sanitised, for search
     page_count: Mapped[int | None] = mapped_column(Integer)
     submitted_by: Mapped[str] = mapped_column(String(64), index=True)
     error_code: Mapped[str | None] = mapped_column(String(48))

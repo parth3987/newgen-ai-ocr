@@ -111,6 +111,7 @@ class Page(BaseModel, Generic[T]):
 class DocumentSummary(BaseModel):
     id: str
     status: str  # received, ready, rejected
+    filename: str | None = None
     sha256: str
     size_bytes: int
     format: str | None
@@ -120,3 +121,14 @@ class DocumentSummary(BaseModel):
     created_at: datetime
     updated_at: datetime
     latest_job: Job | None = None
+
+
+class DocumentFilter(BaseModel):
+    """Document search (all optional). ``q`` matches the filename (case-insensitive
+    substring) or the start of the document id."""
+
+    submitted_by: str | None = None
+    status: str | None = None
+    q: str | None = Field(default=None, max_length=100)
+    created_from: datetime | None = None
+    created_to: datetime | None = None

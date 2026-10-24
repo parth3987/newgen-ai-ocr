@@ -27,8 +27,10 @@ from typing import BinaryIO
 
 from newgen_ocr.auth.tokens import Principal, Role
 from newgen_ocr.errors import AppError, ErrorCode
+from newgen_ocr.ingestion.formats import safe_filename
 from newgen_ocr.ingestion.service import UploadInfo
 from newgen_ocr.jobs.models import (
+    DocumentFilter,
     DocumentSummary,
     Job,
     JobEvent,
@@ -101,6 +103,7 @@ class JobService:
                     "sha256": accepted.sha256,
                     "size_bytes": accepted.size,
                     "format": accepted.format.value,
+                    "filename": safe_filename(upload.filename),
                 },
                 document_id=accepted.document_id,
                 max_queued=self.settings.max_queued_jobs,
@@ -177,10 +180,11 @@ class JobService:
         return document
 
     def documents(
-        self, who: Principal, status: str | None, limit: int, offset: int
+        self, who: Principal, search: DocumentFilter, limit: int, offset: int
     ) -> Page[DocumentSummary]:
-        owner = None if sees_everything(who) else who.user
-        total, items = self.repo.documents(owner, status, limit, offset)
+        if not sees_everything(who):
+            search = search.model_copy(update={"submitted_by": who.user})
+        total, items = self.repo.documents(search, limit, offset)
         return Page[DocumentSummary](items=items, total=total, limit=limit, offset=offset)
 
     def get(self, job_id: str, who: Principal) -> Job:

@@ -83,3 +83,7 @@ evaluation/fonts/
 
 # Service passwords (make services-secrets); never committed
 deploy/secrets/
+
+# Web application build output and dependencies (make frontend)
+src/newgen_ocr/webapp/dist/
+frontend/node_modules/

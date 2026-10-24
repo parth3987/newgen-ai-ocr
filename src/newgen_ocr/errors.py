@@ -67,6 +67,13 @@ class ErrorCode(StrEnum):
     TOO_MANY_JOBS = "TOO_MANY_JOBS"
     WORKER_LOST = "WORKER_LOST"
     DOCUMENT_NOT_READY = "DOCUMENT_NOT_READY"
+    # Web sign-in and administration
+    LOGIN_FAILED = "LOGIN_FAILED"
+    CSRF_FAILED = "CSRF_FAILED"
+    SIGN_IN_UNAVAILABLE = "SIGN_IN_UNAVAILABLE"
+    WEAK_PASSWORD = "WEAK_PASSWORD"  # noqa: S105  # nosec B105 - an error code, not a password
+    USER_EXISTS = "USER_EXISTS"
+    USER_NOT_FOUND = "USER_NOT_FOUND"
 
 
 class AppError(Exception):

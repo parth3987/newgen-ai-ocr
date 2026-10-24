@@ -450,6 +450,54 @@ keeps the synchronous API and file stores for development only.
   - Job errors store the error code's public message, never exception text.
   - Workers log job ids, stage names and codes only.
 
+### ADR-0030: Web application with password sign-in and server-side sessions (2026-10-23)
+Phase 10 adds the React web application at `/app`. It replaces the Phase 8 `/review` page,
+which now redirects there. The owner's choices:
+- **Sign-in.** Local user accounts with passwords, and server-side sessions. API tokens
+  remain for integrations.
+  - **Hashing:** passwords are hashed with the standard library's scrypt (n = 2^15, r = 8,
+    p = 1, random salt), so there is no new dependency. Passwords must be 12 to 256
+    characters and must not contain the user name.
+  - **Lockout:** after `NGOCR_LOGIN_MAX_FAILURES` wrong passwords (default 5) the account
+    locks for `NGOCR_LOGIN_LOCKOUT_MINUTES` (default 15). Refused sign-ins all get the same
+    response, and an unknown name costs the same hash time. The audit log records the real
+    reason.
+  - **Cookie:** the session value is 256 random bits in a cookie that is `HttpOnly`,
+    `SameSite=Strict` and `Secure` outside development (production refuses `Secure` off).
+    Only its SHA-256 is stored.
+  - **Expiry:** sessions end after `NGOCR_SESSION_IDLE_MINUTES` of inactivity (default
+    30), and in any case after `NGOCR_SESSION_MAX_HOURS` (default 12).
+  - **Changes apply at once:** the user's current role and status are read on every
+    request. Disabling a user, changing their role or setting a new password ends their
+    sessions.
+  - **CSRF:** every cookie request that changes something must carry the CSRF token
+    (`X-CSRF-Token`). It is the SHA-256 of the session value, so it needs no storage and
+    cannot be computed without the cookie. Bearer requests need no token.
+  - This closes OD-35.
+- **Frontend dependencies.** A minimal React stack.
+  - Shipped (6 packages, all MIT): React 19.3, React DOM, React Router 8.4 and their
+    dependencies.
+  - Build and test only, not shipped: TypeScript 7, Vite 8 and Vitest 5 with Testing
+    Library and jsdom.
+  - There is no UI component library. The CSS is hand-written and uses system fonts.
+  - All 141 npm packages are pinned in `package-lock.json` with sha512 integrity hashes and
+    were resolved with `--before` (at least 14 days old). Install scripts never run
+    (`ignore-scripts`). They are licence-checked (`scripts/check_npm_licenses.py`) and
+    audited (`npm audit`) in the gate.
+- **Shipping.** `make frontend` builds at staging into `newgen_ocr/webapp/dist`, which goes
+  into the Python package. The build output is not committed, and production never runs
+  Node. FastAPI serves the app from the same origin with a strict CSP: `default-src
+  'none'`, and scripts, styles, images and API calls from `'self'` only. The browser itself
+  therefore refuses any CDN, analytics or other external request.
+- **Access stays in the API.** The app only hides what a role cannot use. Every rule is
+  enforced by the API, and tests call it directly as each role.
+- **New endpoints:**
+  - sign-in: login, session, logout, password change;
+  - extraction search: `GET /api/v1/extractions`;
+  - document search: filename or id, submitter, dates;
+  - admin: overview, audit log, users.
+  Admin and search need service mode, like jobs.
+
 ## Open decisions (defaults in force until decided)
 
 | ID | Question | Default assumption |
@@ -488,8 +536,8 @@ keeps the synchronous API and file stores for development only.
 | OD-32 | Amounts in words | "Rupees Eleven Thousand Eight Hundred Only" is not parsed or cross-checked against the total. Candidate: an Indian-numbering words parser as an extra check |
 | OD-33 | Calibration on real documents | Thresholds were fitted on synthetic documents only, and automatic acceptance stays off. Default: label consented real documents (or use approved reviews, `--from-reviews`) and refit before enabling it; at least 50 gated values per field |
 | OD-34 | Off-host copy of the review history | **Partly done (ADR-0029):** in service mode the history and audit tables are append-only (trigger), so only a database superuser can rewrite them. Default: also copy them to write-once storage or a separate log host (Phase 11) |
-| OD-35 | Review page sign-in | Reviewers paste a token, kept in the tab's session storage (strict CSP, no external scripts). Alternative: server sessions with HttpOnly cookies and CSRF protection, with the full review application |
-| OD-36 | Brute-force protection for tokens | Failures are audited but not rate-limited (secrets are 256-bit, so guessing is infeasible). Default: add per-address rate limiting at the reverse proxy |
+| OD-35 | Review page sign-in | **Done (ADR-0030):** password sign-in with HttpOnly, SameSite=Strict session cookies and a CSRF token; the token-paste page is retired |
+| OD-36 | Brute-force protection | Web sign-in locks an account after repeated wrong passwords (ADR-0030); tokens are 256-bit and failures are audited. Default: also add per-address rate limiting at the reverse proxy (Phase 11), which also limits name enumeration attempts across many accounts |
 | OD-37 | Text cells in tables vs the second engine | A description cell the second engine reads differently blocks table verification, while numbers are corroborated by row checks. Default: keep (conservative); revisit with real documents |
 | OD-38 | Corrections after re-extraction | A new extraction makes a new revision and earlier corrections are not carried over (values and candidates may have changed); the old revision is kept read-only. Alternative: re-apply corrections whose location and extracted value are unchanged |
 | OD-39 | Name fields accepting identifiers | On 3 heavily degraded PAN cards the PAN number was extracted as the holder's name (confidence 0.999; caught by the page-quality gate). Candidate: name/text normalisers reject values that match an identifier format (PAN, GSTIN, Aadhaar) |
@@ -498,3 +546,6 @@ keeps the synchronous API and file stores for development only.
 | OD-42 | Backups and retention | Nothing is backed up or expired automatically yet. Default: nightly `pg_dump` plus a data-volume snapshot, and retention rules for documents and job events, with OD-16 (Phase 11) |
 | OD-43 | Valkey persistence | Append-only file on, so queued messages survive a restart (the reaper re-sends any that are lost). Default: keep; `appendfsync everysec` (the default) can lose about one second of messages, which the reaper recovers |
 | OD-44 | libpq on hosts | Service mode needs the OS libpq (`sudo apt install libpq5` on Ubuntu; in the image in Phase 11). Without it, psycopg cannot load and the service-mode tests are skipped |
+| OD-45 | Multi-factor sign-in and single sign-on | Passwords only. Options: TOTP as a second factor (stdlib HMAC, no dependency), or OIDC with the organisation's identity provider |
+| OD-46 | Web application in local mode | Sign-in, admin and search need the database, so the web application needs service mode (`make services-up`); local mode keeps the API for scripts and tests |
+| OD-47 | Browser testing | The application is unit-tested (Vitest with jsdom) and its API flows end to end against the live stack, but no automated real-browser test runs (no browser automation dependency was added). Default: manual check per release; consider Playwright (Apache-2.0) in CI |

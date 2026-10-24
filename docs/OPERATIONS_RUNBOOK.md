@@ -48,6 +48,27 @@ threads ≤ cores). Workers need the same data volume as the API.
 - **Reaper.** Every worker reaps every `NGOCR_JOB_REAP_INTERVAL_S`. To run a pass by hand:
   `python -m newgen_ocr.jobs reap`.
 
+**Web application.** Build it at staging with `make frontend` (Node 20 or later; `npm ci`
+from the locked, hash-pinned dependencies). The result is in
+`src/newgen_ocr/webapp/dist/`, which is part of the Python package. Production serves it from
+the API at `http://<host>/app/`. Until it is built, `/app` answers `503` with a page saying so.
+For frontend development only, run `cd frontend && npm run dev`: it proxies `/api` to `make run`.
+
+**Web users.** Users sign in with passwords (ADR-0030); tokens remain for integrations.
+
+```bash
+python -m newgen_ocr.auth user-create --user asha --role reviewer   # asks for the password
+python -m newgen_ocr.auth user-list
+python -m newgen_ocr.auth user-password --user asha                 # also unlocks; ends sessions
+python -m newgen_ocr.auth user-disable --user asha                  # ends sessions; user-enable
+```
+
+Create the first admin with the CLI; admins can then manage users in Admin → users. A locked
+account (after `NGOCR_LOGIN_MAX_FAILURES` wrong passwords) unlocks itself after
+`NGOCR_LOGIN_LOCKOUT_MINUTES`, or at once when an admin sets a new password. Serve the
+application over HTTPS outside development: session cookies are `Secure` there, and
+browsers will not send them over plain HTTP.
+
 **Failed jobs.** List them with `GET /api/v1/jobs?status=failed`. `GET
 /api/v1/jobs/{id}/events` shows what happened. Fix the cause, then `POST
 /api/v1/jobs/{id}/retry`: the job resumes after its completed stages.
@@ -100,6 +121,10 @@ All variables use the `NGOCR_` prefix. See `.env.example`.
 | `NGOCR_MAX_QUEUED_JOBS` | 1000 | Uploads are refused (`503 QUEUE_FULL`) beyond this many queued jobs |
 | `NGOCR_MAX_ACTIVE_JOBS_PER_USER` | 50 | Per-user limit on queued and running jobs (`429 TOO_MANY_JOBS`) |
 | `NGOCR_WORKER_CONCURRENCY` | 1 | Processes per worker |
+| `NGOCR_SESSION_IDLE_MINUTES` | 30 | Web sessions end after this long without a request |
+| `NGOCR_SESSION_MAX_HOURS` | 12 | Web sessions end this long after sign-in in any case |
+| `NGOCR_SESSION_COOKIE_SECURE` | auto | `Secure` cookies; on in staging/production (production refuses `false`), off in development/test |
+| `NGOCR_LOGIN_MAX_FAILURES` / `NGOCR_LOGIN_LOCKOUT_MINUTES` | 5 / 15 | Wrong passwords before a lockout, and its length |
 | `NGOCR_REVIEW_CALIBRATION_FILE` | unset | Calibration from `scripts/calibrate_review.py`; without one no value is verified |
 | `NGOCR_REVIEW_AUTO_ACCEPT` | `false` | Accept fully verified documents without a person (needs a calibration file) |
 | `NGOCR_REVIEW_ALLOW_SYNTHETIC_CALIBRATION` | `false` | Let production auto-accept with a synthetic calibration (not recommended) |
@@ -138,8 +163,8 @@ until a worker ingests it.
 - **Tokens.** Create them with `python -m newgen_ocr.auth create --user <name> --role
   viewer|reviewer|approver|admin [--expires-days N]` and hand each one over privately.
   `list` shows ids, roles and expiry (never secrets). `revoke <id>` takes effect at once.
-- **Review page.** It is served at `/review`; links to an item are
-  `/review#<document_id>/<layout_run>`.
+- **Review.** The queue is at `/app/review`; an item is at
+  `/app/review/<document_id>/<layout_run>`.
 - **History integrity.** Run `GET /api/v1/review/history/verify` (admin) after restores and
   periodically. `valid: false` names the first bad event: restore `data/review/` from a
   backup and investigate.
@@ -186,6 +211,9 @@ is an orphan from a crash between the two commit steps. Report it before deletin
 | `psycopg` import error: libpq not found | OS libpq missing | `sudo apt install libpq5` (OD-44) |
 | Jobs stay `queued` | No worker running, or workers cannot reach Valkey | Start `python -m newgen_ocr.worker`; check its logs. Queued jobs are safe: they run once a worker starts |
 | A job is `running` but nothing happens | Its worker died | It is requeued when its lease expires (`NGOCR_JOB_LEASE_S`) and after the next reaper pass. After the last attempt it fails with `WORKER_LOST`; then retry it |
+| Signed out straight after signing in (development over plain HTTP) | `NGOCR_SESSION_COOKIE_SECURE=true` (or staging) on `http://` | Use HTTPS, or leave it unset in development |
+| `CSRF_FAILED` in the web application | The page was open across a sign-in in another tab, or a script calls the API with the cookie | Reload the page. Scripts should use bearer tokens |
+| `/app` shows "not built" | `make frontend` has not been run for this build | Run it at staging and redeploy the package |
 | `JOB_ALREADY_ACTIVE` | The document already has a queued or running job | Wait for it, or cancel it, then submit again |
 
 ## Logs

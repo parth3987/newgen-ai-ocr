@@ -136,18 +136,6 @@ def test_workflow_over_http(client: TestClient, settings: Settings) -> None:
     assert audit[-1]["actor"] == "meena" and "1180" not in json.dumps(audit)
 
 
-def test_review_page(client: TestClient) -> None:
-    page = client.get("/review")
-    assert page.status_code == 200 and "text/html" in page.headers["content-type"]
-    csp = page.headers["Content-Security-Policy"]
-    assert "script-src 'self'" in csp and "default-src 'none'" in csp
-    assert page.headers["X-Frame-Options"] == "DENY"
-    assert "https://" not in page.text  # no external assets
-    script = client.get("/review/static/review.js")
-    assert script.status_code == 200 and "innerHTML" not in script.text
-    assert client.get("/review/static/other.js").status_code == 422
-
-
 def test_auto_accept_configuration(
     tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -8,13 +8,16 @@ page images and OCR/layout/extraction JSON stay on the shared data volume.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from newgen_ocr.audit import AuditLog
 from newgen_ocr.auth.db import DbTokenStore
 from newgen_ocr.auth.tokens import TokenStore
+from newgen_ocr.auth.users import SessionPolicy, UserStore
 from newgen_ocr.config import Settings
 from newgen_ocr.db.audit import DbAuditLog
 from newgen_ocr.db.engine import Database
+from newgen_ocr.db.queries import Queries
 from newgen_ocr.db.review_store import SqlReviewStore
 from newgen_ocr.extraction.extract import Options
 from newgen_ocr.extraction.schema import SchemaRegistry
@@ -51,6 +54,8 @@ class Services:
     review: ReviewService
     db: Database | None = None
     jobs: JobRepo | None = None
+    users: UserStore | None = None  # web sign-in (service mode)
+    queries: Queries | None = None  # search and administration (service mode)
 
 
 def build_engines(settings: Settings) -> dict[str, OcrEngine]:
@@ -97,6 +102,8 @@ def build_services(settings: Settings, pool_size: int = 5) -> Services:
         )
     db: Database | None = None
     jobs: JobRepo | None = None
+    users: UserStore | None = None
+    queries: Queries | None = None
     audit: AuditLog
     tokens: TokenStore | DbTokenStore
     reviews: ReviewStore
@@ -106,6 +113,16 @@ def build_services(settings: Settings, pool_size: int = 5) -> Services:
         audit = DbAuditLog(db)
         tokens = DbTokenStore(db)
         reviews = SqlReviewStore(db)
+        users = UserStore(
+            db,
+            SessionPolicy(
+                idle=timedelta(minutes=settings.session_idle_minutes),
+                absolute=timedelta(hours=settings.session_max_hours),
+                max_failures=settings.login_max_failures,
+                lockout=timedelta(minutes=settings.login_lockout_minutes),
+            ),
+        )
+        queries = Queries(db)
     else:
         audit = AuditLog(settings.data_dir)
         tokens = TokenStore(settings.auth_tokens_path)
@@ -183,4 +200,6 @@ def build_services(settings: Settings, pool_size: int = 5) -> Services:
         review=review,
         db=db,
         jobs=jobs,
+        users=users,
+        queries=queries,
     )

@@ -8,6 +8,7 @@ so blocking file and PDF work runs in the thread pool.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Path, Query, Request, UploadFile
@@ -15,12 +16,12 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from newgen_ocr.api.auth import principal, require_document
 from newgen_ocr.api.routes.jobs import QUEUED, IdempotencyKey, Limit, Offset, accepted, jobs_service
-from newgen_ocr.auth.tokens import Principal
+from newgen_ocr.auth.tokens import USER_PATTERN, Principal
 from newgen_ocr.config import Settings
 from newgen_ocr.errors import AppError, ErrorCode
 from newgen_ocr.ingestion.models import DocumentManifest, PageText
 from newgen_ocr.ingestion.service import IngestionService, UploadInfo
-from newgen_ocr.jobs.models import DocumentSummary, JobParams, Page
+from newgen_ocr.jobs.models import DocumentFilter, DocumentSummary, JobParams, Page
 from newgen_ocr.jobs.service import sees_everything
 from newgen_ocr.preprocessing.service import PreprocessingService
 from newgen_ocr.storage.local import DocumentStore
@@ -103,23 +104,48 @@ def list_documents(
     request: Request,
     who: Who,
     status: Annotated[Literal["received", "ready", "rejected"] | None, Query()] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    submitted_by: Annotated[str | None, Query(pattern=USER_PATTERN)] = None,
+    created_from: Annotated[datetime | None, Query()] = None,
+    created_to: Annotated[datetime | None, Query()] = None,
     limit: Limit = 50,
     offset: Offset = 0,
 ) -> Page[DocumentSummary]:
-    """Newest first. Submitters see their own documents; other roles see every document."""
+    """Newest first. Submitters see their own documents; other roles see every document
+    and may filter by ``submitted_by``. ``q`` matches the filename (substring, any case)
+    or the start of the document id."""
+    search = DocumentFilter(
+        submitted_by=submitted_by,
+        status=status,
+        q=q.strip() if q else None,
+        created_from=created_from,
+        created_to=created_to,
+    )
     jobs = jobs_service(request)
     if jobs is not None:
-        return jobs.documents(who, status, limit, offset)
-    summaries = [
-        _local_summary(m)
-        for m in _store(request).manifests()
-        if sees_everything(who) or m.submitted_by == who.user
-    ]
-    summaries = [s for s in summaries if status in (None, s.status)]
+        return jobs.documents(who, search, limit, offset)
+    if not sees_everything(who):
+        search = search.model_copy(update={"submitted_by": who.user})
+    summaries = [_local_summary(m) for m in _store(request).manifests() if _matches(m, search)]
     summaries.sort(key=lambda s: s.created_at, reverse=True)
     return Page[DocumentSummary](
         items=summaries[offset : offset + limit], total=len(summaries), limit=limit, offset=offset
     )
+
+
+def _matches(manifest: DocumentManifest, search: DocumentFilter) -> bool:
+    if search.submitted_by is not None and manifest.submitted_by != search.submitted_by:
+        return False
+    if search.status not in (None, "ready"):
+        return False
+    if search.q:
+        name = (manifest.original_filename or "").lower()
+        term = search.q.lower()
+        if term not in name and not manifest.document_id.startswith(term):
+            return False
+    if search.created_from is not None and manifest.created_at < search.created_from:
+        return False
+    return search.created_to is None or manifest.created_at < search.created_to
 
 
 @router.get("/{document_id}/status", response_model=DocumentSummary)
@@ -165,6 +191,7 @@ def _local_summary(manifest: DocumentManifest) -> DocumentSummary:
     return DocumentSummary(
         id=manifest.document_id,
         status="ready",
+        filename=manifest.original_filename,
         sha256=manifest.sha256,
         size_bytes=manifest.size_bytes,
         format=manifest.format.value,

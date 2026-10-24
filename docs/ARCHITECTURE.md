@@ -159,7 +159,8 @@ src/newgen_ocr/
     crops.py           evidence crops and page previews (Aadhaar redaction)
     service.py         queue, claim/correct/approve/reject, patterns
     ui/                minimal review page (static HTML/CSS/JS, strict CSP)
-frontend/              React + TypeScript review application             [planned P10]
+frontend/              React + TypeScript web application (built into
+                       newgen_ocr/webapp/dist, served at /app)            [implemented P10]
 ```
 
 Dependency rule: `api` and `worker` may depend on domain modules; domain modules never import
@@ -174,7 +175,7 @@ Dependency rule: `api` and `worker` may depend on domain modules; domain modules
 | Errors | Stable `ErrorCode` values in a uniform envelope; unhandled errors return a generic 500 and are logged with traceback [implemented] |
 | Health | Liveness (process up) vs readiness (dependencies usable) [implemented; readiness covers `data_dir`, and in service mode the database, its schema version and the broker] |
 | API docs | Swagger UI/ReDoc disabled (they load CDN assets); OpenAPI JSON at `/api/v1/openapi.json` [implemented] |
-| Auth | Hashed bearer tokens with roles on every endpoint except health and the static review page; `submitter` reaches only its own documents (ADR-0027, ADR-0029) [implemented P9]; session sign-in [planned P10] |
+| Auth | Bearer tokens (integrations) or password sessions (web application) with roles on every endpoint except health, sign-in and `/app`; CSRF tokens on cookie changes; `submitter` reaches only its own documents (ADR-0027, ADR-0029, ADR-0030) [implemented P10] |
 | Document storage | Local filesystem, originals separate from derived, atomic commit (ADR-0013) [implemented] |
 | Audit | JSONL lifecycle events without content or filenames (ADR-0014) [implemented] |
 | Untrusted parsing | PDFium (serialised by a lock) and Pillow restricted to the detected format; in-process for now (OD-12) [implemented] |

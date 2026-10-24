@@ -146,6 +146,23 @@ class Settings(BaseSettings):
     # Jobs run concurrently by one worker process pool (OCR is CPU-bound; keep it small).
     worker_concurrency: int = Field(default=1, ge=1, le=64)
 
+    # Web sign-in (ADR-0030; service mode). Sessions end after this much inactivity, and
+    # in any case after the absolute lifetime.
+    session_idle_minutes: int = Field(default=30, ge=5, le=1440)
+    session_max_hours: int = Field(default=12, ge=1, le=168)
+    # Cookies are sent only over HTTPS. Default: on in staging and production, off in
+    # development and test (plain http on 127.0.0.1).
+    session_cookie_secure: bool | None = None
+    # Wrong passwords before an account is locked, and for how long.
+    login_max_failures: int = Field(default=5, ge=1, le=100)
+    login_lockout_minutes: int = Field(default=15, ge=1, le=1440)
+
+    @property
+    def cookie_secure(self) -> bool:
+        if self.session_cookie_secure is not None:
+            return self.session_cookie_secure
+        return self.environment in ("staging", "production")
+
     @property
     def service_mode(self) -> bool:
         return self.database_url is not None
@@ -158,6 +175,8 @@ class Settings(BaseSettings):
             raise ValueError(f"{self.environment} requires database_url and broker_url")
         if self.jobs_eager and self.environment == "production":
             raise ValueError("jobs_eager is for tests and evaluation, not production")
+        if self.session_cookie_secure is False and self.environment == "production":
+            raise ValueError("session cookies must be Secure (HTTPS) in production")
         return self
 
     @property

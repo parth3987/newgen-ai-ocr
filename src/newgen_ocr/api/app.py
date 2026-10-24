@@ -15,6 +15,7 @@ from newgen_ocr.api.body_limit import BodySizeLimitMiddleware
 from newgen_ocr.api.errors import register_error_handlers
 from newgen_ocr.api.middleware import request_context_middleware
 from newgen_ocr.api.routes import (
+    admin,
     documents,
     extraction,
     health,
@@ -23,7 +24,8 @@ from newgen_ocr.api.routes import (
     ocr,
     preprocessing,
     review,
-    review_ui,
+    session,
+    webapp,
 )
 from newgen_ocr.config import Settings, get_settings
 from newgen_ocr.db.engine import safe_url
@@ -101,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.extraction = services.extraction
     app.state.review = services.review
     app.state.db = services.db
+    app.state.users = services.users
     app.state.owner_of = _owner_lookup(services)
     _services_mode(app, services)
 
@@ -117,9 +120,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(layout.router)
     app.include_router(extraction.router)
     app.include_router(review.router)
-    app.include_router(review_ui.router)
+    app.include_router(session.router)
+    app.include_router(webapp.router)
     if app.state.jobs is not None:
         app.include_router(jobs.router)
+        app.include_router(admin.router)
 
     logger.info(
         "application created",

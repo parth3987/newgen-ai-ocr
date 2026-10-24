@@ -11,8 +11,11 @@ disabled (DECISIONS.md ADR-0005).
   hex id. Every response, including errors, carries `X-Request-ID`.
 - **Caching:** every response carries `Cache-Control: no-store` and
   `X-Content-Type-Options: nosniff`.
-- **Authentication:** every endpoint except `/health/…` and the static `/review` page
-  requires `Authorization: Bearer <token>` (ADR-0027, ADR-0029). Roles, lowest first:
+- **Authentication:** every endpoint except `/health/…`, `POST /api/v1/auth/login` and the
+  web application (`/app`) requires either `Authorization: Bearer <token>` (integrations;
+  ADR-0027, ADR-0029) or the web application's session cookie (ADR-0030). With the cookie,
+  every `POST`/`PATCH` must also send the session's CSRF token in `X-CSRF-Token`
+  (`403 CSRF_FAILED` otherwise). Roles, lowest first:
   `submitter` (upload; read and re-run **its own** documents and jobs), `viewer` (read
   everything), `reviewer`, `approver`, `admin` (REVIEW.md). A document or job a submitter
   may not see is reported as not found (`404`), never as forbidden.
@@ -90,6 +93,12 @@ Messages never contain document content or submitted values.
 | `TOO_MANY_JOBS` | 429 | The user has `NGOCR_MAX_ACTIVE_JOBS_PER_USER` queued or running jobs; retry later |
 | `WORKER_LOST` | 500 | (job `error_code` only) The worker stopped during the last allowed attempt |
 | `DOCUMENT_NOT_READY` | 409 | The upload has not been ingested yet (or was rejected); see `…/status` |
+| `LOGIN_FAILED` | 401 | Wrong user name or password, a locked or disabled account (one message for all), or a wrong current password |
+| `CSRF_FAILED` | 403 | A cookie-authenticated change without the session's `X-CSRF-Token` |
+| `SIGN_IN_UNAVAILABLE` | 503 | Web sign-in needs the database (service mode) |
+| `WEAK_PASSWORD` | 422 | Fewer than 12 or more than 256 characters, or contains the user name |
+| `USER_EXISTS` | 409 | A web user with that name exists |
+| `USER_NOT_FOUND` | 404 | No web user with that name |
 
 Pages that cannot be recognised reliably are **not** errors. They come back in the run with
 `status: "unsupported"` and/or `review.needs_review: true` (see below and LANGUAGE_SUPPORT.md).
@@ -183,10 +192,13 @@ Errors: `413 FILE_TOO_LARGE`, `415 UNSUPPORTED_FORMAT | FORMAT_MISMATCH`,
 `422 EMPTY_FILE | CORRUPT_DOCUMENT | ENCRYPTED_DOCUMENT | TOO_MANY_PAGES | PAGE_TOO_LARGE |
 VALIDATION_ERROR`.
 
-### `GET /api/v1/documents?status=&limit=&offset=`
-Role: submitter (own documents) or viewer (all). Newest first. `status`: `received` (queued,
-not yet ingested), `ready` or `rejected`. → `{"items": [DocumentSummary], "total", "limit",
-"offset"}`.
+### `GET /api/v1/documents?q=&status=&submitted_by=&created_from=&created_to=&limit=&offset=`
+Role: submitter (own documents) or viewer (all, filterable by `submitted_by`). Newest first.
+`q` matches the filename (substring, any case; `%` and `_` are literal) or the start of the
+document id. `status`: `received` (queued, not yet ingested), `ready` or `rejected`.
+`created_from` (inclusive) and `created_to` (exclusive) are ISO 8601 times.
+→ `{"items": [DocumentSummary], "total", "limit", "offset"}`. `DocumentSummary` includes
+`filename` (sanitised).
 
 ### `GET /api/v1/documents/{document_id}/status`
 → `DocumentSummary`:
@@ -607,6 +619,54 @@ with `WORKER_LOST`.
 `stage_started`, `stage_completed`, `retry_scheduled`, `lease_expired`, `redispatched`,
 `cancel_requested`, `cancelled`, `retried`, `succeeded`, `failed`. `detail` holds only ids,
 counts and codes.
+
+## Web sign-in (Phase 10)
+
+The web application signs in with a password and keeps an HttpOnly session cookie (ADR-0030).
+Integrations keep using bearer tokens.
+
+| Endpoint | Auth | Result |
+|---|---|---|
+| `POST /api/v1/auth/login` `{"user", "password"}` | none | `200` `SessionInfo` and `Set-Cookie: ngocr_session=…; HttpOnly; SameSite=Strict; Path=/` (`Secure` outside development). `401 LOGIN_FAILED` for every refusal |
+| `GET /api/v1/auth/session` | cookie or token | `SessionInfo`; `csrf_token` is null for bearer callers |
+| `POST /api/v1/auth/logout` | cookie + CSRF | `204`; the session is revoked and the cookie cleared |
+| `POST /api/v1/auth/password` `{"current_password", "new_password"}` | cookie + CSRF | `204`; every session of the user ends (sign in again) |
+
+`SessionInfo`: `{"user", "role", "csrf_token", "expires_at"}`. Sessions end after 30 minutes
+without a request and 12 hours after sign-in (configurable); disabling a user, changing
+their role or password ends their sessions at once.
+
+## Search and administration (Phase 10, service mode)
+
+| Endpoint | Role | Result |
+|---|---|---|
+| `GET /api/v1/extractions?q=&schema_id=&status=&review_status=&submitted_by=&created_from=&created_to=&limit=&offset=` | submitter (own) / viewer (all) | `{"items": [ExtractionSummary], …}`, newest first. `q` matches the filename or any extracted value (substring, any case) |
+| `GET /api/v1/admin/overview` | admin | `Overview`: jobs by status, oldest queued job age, running jobs with worker and lease, jobs per worker, the 10 latest failures, failures in the last 24 h by code, documents and review items by status, active sessions |
+| `GET /api/v1/admin/audit?event=&actor=&document_id=&since=&until=&limit=&offset=` | admin | `{"items": [AuditEntry], …}`, newest first. `event` is a name (`review.approved`) or a prefix ending in `.` (`auth.`) |
+| `GET /api/v1/admin/users` | admin | `[UserInfo]` |
+| `POST /api/v1/admin/users` `{"name", "role", "password"}` | admin | `201` `UserInfo` |
+| `PATCH /api/v1/admin/users/{name}` `{"role"?, "disabled"?, "password"?}` | admin | `UserInfo`. A new role, disabling or a new password ends the user's sessions (and clears a lockout). Admins cannot disable or demote themselves (`403`) |
+
+`ExtractionSummary`: `{"document_id", "layout_run", "schema_id", "status", "review_status",
+"filename", "submitted_by", "created_at", "preview"}` (`preview`: up to six extracted values).
+`AuditEntry`: `{"id", "ts", "event", "actor", "request_id", "document_id", "fields"}`.
+`UserInfo`: `{"name", "role", "disabled", "locked_until", "created_at",
+"password_changed_at", "last_login_at"}` (never the password hash).
+
+New audit events: `auth.login`, `auth.login_failed` (with `reason`: `unknown`,
+`wrong_password`, `locked`, `disabled`), `auth.logout`, `auth.csrf_failed`, `user.created`,
+`user.updated`. Passwords never appear in audit events or logs.
+
+## Web application (Phase 10)
+
+`GET /app/…` serves the built React application (`make frontend`); unknown paths under
+`/app` return the application shell (client-side routes), and `/app/assets/*` are
+content-hashed files cached for a year. `GET /` redirects to `/app/`, and the Phase 8
+`/review` page to `/app/review`. Every response carries `Content-Security-Policy:
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:;
+connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none';
+base-uri 'none'`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`. When the
+application is not built, `/app` returns `503` with a page saying so.
 
 ## Verification and review (Phase 8)
 

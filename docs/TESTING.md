@@ -23,8 +23,19 @@ make schemas     # regenerate docs/schemas/ and EXTRACTION_SCHEMAS.md (a test ch
 make calibrate   # fit review thresholds on the synthetic calibration set (about 2 h, CPU)
 make services-up # PostgreSQL + Valkey on 127.0.0.1 (podman or docker); service-mode tests
 make services-down
-make check       # lint + typecheck + services-up + test + security + licenses
+make frontend-test  # frontend: tsc type check, Vitest unit tests, npm licence check
+make frontend    # STAGING (network for npm ci): build the web application
+make check       # lint + typecheck + services-up + test + frontend-test + security + licenses
 ```
+
+**Frontend tests** (`frontend/src/**/*.test.ts(x)`, Vitest with jsdom) mock `fetch` and cover:
+- the API client (CSRF only on changes, error messages with references, sign-out on `401`);
+- status and progress display, and text never rendered as markup;
+- sign-in failures, role-dependent navigation, and pages refused without calling the API;
+- returning to sign-in when a session expires.
+
+The access rules themselves are tested against the API
+(`tests/integration/test_web_signin.py`), never only in the browser.
 
 **Service-mode tests** (`tests/integration/test_jobs.py`, `test_worker.py`) run against the
 real PostgreSQL and Valkey from `make services-up`. `make test` passes their URLs from

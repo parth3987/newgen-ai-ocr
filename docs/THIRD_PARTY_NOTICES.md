@@ -169,6 +169,29 @@ our `opencv-python-headless` instead (ADR-0020).
 | PostgreSQL image `postgres:17.10-alpine` | pinned by digest in `deploy/compose.yaml` | PostgreSQL Licence; Alpine packages under their own licences | Separate container, not linked or redistributed with our code (OD-40) |
 | Valkey image `valkey/valkey:8-alpine` (8.1.10) | pinned by digest | BSD-3-Clause; Alpine packages under their own licences | Separate container (broker) |
 
+### Web application: npm packages (reviewed 2026-10-23)
+
+Shipped in the built application (`newgen_ocr/webapp/dist`), all MIT:
+
+| Package | Version | Licence |
+|---|---|---|
+| react | 19.3.0 | MIT |
+| react-dom | 19.3.0 | MIT |
+| scheduler | 0.28.0 | MIT |
+| react-router | 8.4.0 | MIT |
+| @remix-run/route-pattern | 0.22.1 | MIT |
+| cookie-es | 3.1.1 | MIT |
+
+Build and test only (staging and development, not shipped): 135 packages, including
+TypeScript 7.0.2, Vite 8.3.4, Vitest 5.0.3, @vitejs/plugin-react, jsdom and Testing Library.
+They are MIT, ISC, Apache-2.0, BSD or MIT-0, except:
+- `lightningcss` (MPL-2.0), the CSS minifier Vite runs at build time. It is used unmodified,
+  and its output is not covered by its licence.
+- `lru-cache` (BlueOak-1.0.0, permissive).
+- `mdn-data` (CC0-1.0).
+`scripts/check_npm_licenses.py` enforces this list. The full list with versions and hashes
+is `frontend/package-lock.json`.
+
 ### OCR system binary
 
 `tesseract-ocr` 5.5.0 (Apache-2.0) and its dependency Leptonica (BSD-2-Clause-like) are OS

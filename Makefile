@@ -25,7 +25,7 @@ TEST_SERVICES  := if [ -f $(SECRETS)/postgres_password ]; then \
                   export NGOCR_TEST_BROKER_URL="redis://:$$(cat $(SECRETS)/valkey_password)@127.0.0.1:56379/15"; fi;
 REPORTS        := reports
 
-.PHONY: help services-secrets services-up services-down venv lock models fonts eval-languages eval-handwriting eval-layout eval-extraction calibrate schemas lint format typecheck test security secrets licenses sbom bench eval check run clean
+.PHONY: help frontend frontend-lock frontend-test frontend-licenses services-secrets services-up services-down venv lock models fonts eval-languages eval-handwriting eval-layout eval-extraction calibrate schemas lint format typecheck test security secrets licenses sbom bench eval check run clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -59,6 +59,20 @@ typecheck: ## mypy (strict)
 test: ## pytest with coverage gate (service-mode tests need `make services-up`)
 	@$(TEST_SERVICES) $(BIN)/pytest --cov
 
+frontend: ## STAGING (network for npm ci): build the web application into the Python package
+	cd frontend && npm ci --ignore-scripts --no-audit && npm run build
+
+frontend-lock: ## Re-resolve frontend/package-lock.json from releases at least 14 days old
+	cd frontend && rm -rf node_modules package-lock.json && \
+		npm install --ignore-scripts --before=$(EXCLUDE_NEWER)
+
+frontend-test: ## Frontend type check and unit tests (Vitest), plus the npm licence check
+	cd frontend && npx tsc --noEmit && npx vitest run
+	$(BIN)/python scripts/check_npm_licenses.py
+
+frontend-licenses: ## npm lock: integrity hashes and licence allowlist
+	$(BIN)/python scripts/check_npm_licenses.py
+
 services-secrets: ## Create random PostgreSQL and Valkey passwords in deploy/secrets/ (once)
 	@mkdir -p -m 700 $(SECRETS)
 	@for name in postgres_password valkey_password; do \
@@ -75,6 +89,7 @@ security: ## Bandit + dependency vulnerability audit
 	$(BIN)/bandit -q -c pyproject.toml -r src scripts
 	$(BIN)/pip-audit --strict --require-hashes --disable-pip -r requirements.lock
 	$(BIN)/pip-audit --strict --require-hashes --disable-pip -r requirements-dev.lock
+	cd frontend && npm audit --audit-level=low
 
 secrets: ## Gitleaks scan of git history and working tree
 	docker run --rm -v "$(CURDIR):/repo:ro" $(GITLEAKS_IMAGE) git /repo --no-banner
@@ -112,7 +127,7 @@ calibrate: ## Fit review thresholds on the synthetic calibration set (docs/REVIE
 schemas: ## Regenerate documented JSON Schemas and the document-type reference
 	$(BIN)/python scripts/generate_schemas.py
 
-check: lint typecheck services-up test security licenses ## Full local acceptance gate (plus `make secrets`)
+check: lint typecheck services-up test frontend-test security licenses ## Full local acceptance gate (plus `make secrets`)
 
 run: ## Run the API on 127.0.0.1:8000 with console logs
 	mkdir -p data

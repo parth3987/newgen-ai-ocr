@@ -187,17 +187,19 @@ The audit log (`audit/audit.jsonl`) records each step **without content**. It co
 When Aadhaar masking is on, every Aadhaar number the OCR read on the page is blacked out in
 both. This is best effort: digits the OCR did not read cannot be located (OD-30).
 
-`GET /review` serves a small page for working the queue:
-- **What it shows:** the source crop next to each value, plus the gate results, checks,
-  the page view and the history.
-- **What a reviewer can do:** claim, correct and confirm values, approve and reject.
-- **Deep links:** `/review#<document_id>/<layout_run>`.
-- **How it is built:** plain HTML, CSS and JavaScript shipped in the package, with no
-  external assets and a strict Content-Security-Policy. Document text is inserted only as
-  text, never as HTML. Crops are fetched with the token and shown as `blob:` images.
-- **Token:** the reviewer pastes it once; it is kept in the tab's session storage.
-
-A full review application is planned (IMPLEMENTATION_PLAN.md).
+Reviewers work in the web application (ADR-0030):
+- **Queue:** `/app/review`, with views for open items, items assigned to me, pending,
+  approved and rejected, and a reason filter.
+- **Item:** `/app/review/<document_id>/<layout_run>`. It shows:
+  - the source crop next to each value, with the gate results (verified, the reasons,
+    confidence against threshold, the second engine's reading);
+  - flagged table cells with their crops;
+  - checks and history;
+  - the page with the selected field's evidence highlighted.
+- **Actions:** claim, release, correct (set, not on page, correct as is), confirm a table,
+  approve (acknowledging failing checks) and reject.
+- **Sign-in:** password sign-in with a session cookie, sent with images and API calls
+  alike. It replaces the Phase 8 token page; `/review` redirects to `/app/review`.
 
 ## Correction patterns
 

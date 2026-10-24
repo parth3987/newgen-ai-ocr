@@ -63,6 +63,12 @@ HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.TOO_MANY_JOBS: 429,
     ErrorCode.WORKER_LOST: 500,
     ErrorCode.DOCUMENT_NOT_READY: 409,
+    ErrorCode.LOGIN_FAILED: 401,
+    ErrorCode.CSRF_FAILED: 403,
+    ErrorCode.SIGN_IN_UNAVAILABLE: 503,
+    ErrorCode.WEAK_PASSWORD: 422,
+    ErrorCode.USER_EXISTS: 409,
+    ErrorCode.USER_NOT_FOUND: 404,
 }
 
 _CODE_FOR_HTTP_STATUS = {

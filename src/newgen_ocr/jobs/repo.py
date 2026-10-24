@@ -26,6 +26,7 @@ from newgen_ocr.ingestion.models import DocumentManifest
 from newgen_ocr.jobs.models import (
     ACTIVE,
     STAGES,
+    DocumentFilter,
     DocumentSummary,
     JobKind,
     JobParams,
@@ -37,6 +38,11 @@ from newgen_ocr.jobs.models import JobEvent as JobEventView
 
 def now() -> datetime:
     return datetime.now(tz=UTC)
+
+
+def like_escape(term: str) -> str:
+    """A user's search text as a literal LIKE pattern (``%`` and ``_`` match themselves)."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def request_hash(kind: JobKind, params: JobParams, content_sha256: str | None) -> str:
@@ -160,13 +166,23 @@ class JobRepo:
                     setattr(row, key, value)
 
     def documents(
-        self, submitted_by: str | None, status: str | None, limit: int, offset: int
+        self, search: DocumentFilter, limit: int, offset: int
     ) -> tuple[int, list[DocumentSummary]]:
         where: list[ColumnElement[bool]] = []
-        if submitted_by is not None:
-            where.append(Document.submitted_by == submitted_by)
-        if status is not None:
-            where.append(Document.status == status)
+        if search.submitted_by is not None:
+            where.append(Document.submitted_by == search.submitted_by)
+        if search.status is not None:
+            where.append(Document.status == search.status)
+        if search.q:
+            term = like_escape(search.q)
+            where.append(
+                Document.filename.ilike(f"%{term}%", escape="\\")
+                | Document.id.startswith(search.q.lower(), autoescape=True)
+            )
+        if search.created_from is not None:
+            where.append(Document.created_at >= search.created_from)
+        if search.created_to is not None:
+            where.append(Document.created_at < search.created_to)
         with self.db.session() as session:
             total = session.scalar(select(func.count()).select_from(Document).where(*where))
             rows = session.scalars(
@@ -601,6 +617,7 @@ def _summary(doc: Document, latest: Job | None) -> DocumentSummary:
     return DocumentSummary(
         id=doc.id,
         status=doc.status,
+        filename=doc.filename,
         sha256=doc.sha256,
         size_bytes=doc.size_bytes,
         format=doc.format,
