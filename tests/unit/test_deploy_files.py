@@ -43,3 +43,11 @@ def test_nginx_tls_policy() -> None:
     assert "ssl_protocols TLSv1.2 TLSv1.3;" in conf
     assert "ssl_session_tickets off;" in conf and "server_tokens off;" in conf
     assert "Strict-Transport-Security" in conf and "$request_uri" not in conf  # no query in logs
+
+
+def test_compose_secrets_follow_the_site_path() -> None:
+    """An installed release reads the site's secrets; a checkout reads deploy/secrets/."""
+    compose = (ROOT / "deploy" / "compose.yaml").read_text()
+    files = re.findall(r"^    file: (\S+)$", compose.split("\nsecrets:\n")[-1], re.M)
+    assert len(files) == 6
+    assert all(f.startswith("${NGOCR_SECRETS_PATH:-./secrets}/") for f in files)

@@ -1,0 +1,640 @@
+#!/bin/sh
+# New Gen AI OCR: install and operate a release from the offline bundle (ADR-0032).
+#
+# Runs on the disconnected production host. Needs only a container engine (Podman 4.9+ with
+# its API socket, or Docker 24+) with Compose v2, OpenSSH (ssh-keygen) and coreutils.
+# Never uses the network: images come from the bundle, nothing is pulled, and every file
+# is checked against the signed SHA256SUMS first.
+#
+#   ./ngocrctl verify   --signers FILE           check the bundle's signature and every hash
+#   ./ngocrctl preflight                          check this host
+#   ./ngocrctl install  --signers FILE [TLS]     install or upgrade to this bundle's release
+#
+# Then, from <prefix>/current/ngocrctl (prefix: /opt/newgen-ocr, or NGOCR_PREFIX):
+#   status | start | stop | restart | smoke [--no-job] [--restart]
+#   backup | restore STAMP | rollback [--to RELEASE] [--restore|--no-restore]
+#   create-admin --user NAME | verify-installed | prune
+#
+# TLS for the first install: --tls-cert FILE --tls-key FILE --tls-ca FILE (the CA that
+# clients trust), or --self-signed-tls (needs openssl; for trials). --hostname NAME and
+# --bind ADDRESS set the certificate name and listening address.
+set -eu
+umask 077
+
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+NAMESPACE=newgen-ocr-bundle
+PRINCIPAL=newgen-ocr-release
+PROJECT=newgen-ocr
+
+say() { printf '%s\n' "$*"; }
+step() { printf '==> %s\n' "$*"; }
+die() { printf 'ngocrctl: %s\n' "$*" >&2; exit 1; }
+
+# ------------------------------------------------------------------ environment
+if [ -n "${NGOCR_ENGINE:-}" ]; then
+  ENGINE=$NGOCR_ENGINE
+elif command -v podman >/dev/null 2>&1; then
+  ENGINE=podman
+elif command -v docker >/dev/null 2>&1; then
+  ENGINE=docker
+else
+  ENGINE=""
+fi
+
+if [ -n "${NGOCR_PREFIX:-}" ]; then
+  PREFIX=$NGOCR_PREFIX
+elif [ "$(basename "$(dirname "$HERE")")" = releases ]; then
+  PREFIX=$(dirname "$(dirname "$HERE")")
+else
+  PREFIX=/opt/newgen-ocr
+fi
+
+relval() { sed -n "s/^$2=//p" "$1/release.env" | head -n 1; }
+image_tag() { awk -v n="$2" '$1 == n { print $4 }' "$1/images.txt"; }
+image_id() { $ENGINE image inspect --format '{{.Id}}' "$1" 2>/dev/null | sed 's/^sha256://'; }
+current_release() {
+  if [ -L "$PREFIX/current" ]; then basename "$(readlink "$PREFIX/current")"; fi
+}
+site_value() { sed -n "s/^$1=//p" "$PREFIX/config/site.env" | tail -n 1; }
+
+# compose RELEASE_DIR ARGS...: the release's compose files, the site's settings.
+compose() {
+  _r=$1
+  shift
+  $ENGINE compose -p "$PROJECT" -f "$_r/config/compose.yaml" -f "$_r/config/compose.images.yaml" \
+    --env-file "$PREFIX/config/site.env" "$@"
+}
+
+lock() {
+  mkdir -p "$PREFIX/state"
+  mkdir "$PREFIX/state/lock" 2>/dev/null || die "another ngocrctl is running (or remove $PREFIX/state/lock)"
+  trap 'rmdir "$PREFIX/state/lock" 2>/dev/null || true' EXIT INT TERM
+}
+
+record() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$PREFIX/state/history"; }
+
+# ------------------------------------------------------------------ verification
+signers_file() {
+  if [ -n "${SIGNERS:-}" ]; then
+    printf '%s' "$SIGNERS"
+  elif [ -n "${NGOCR_SIGNERS:-}" ]; then
+    printf '%s' "$NGOCR_SIGNERS"
+  elif [ -f "$PREFIX/config/allowed_signers" ]; then
+    printf '%s' "$PREFIX/config/allowed_signers"
+  else
+    die "no trusted signers file: pass --signers FILE (received separately from the bundle)"
+  fi
+}
+
+# verify_bundle DIR: signature, every hash, nothing unlisted, no links.
+verify_bundle() {
+  _b=$1
+  _s=$(signers_file)
+  [ -f "$_s" ] || die "signers file not found: $_s"
+  [ -f "$_b/SHA256SUMS" ] && [ -f "$_b/SHA256SUMS.sig" ] || die "$_b is not a bundle"
+  _good=$(ssh-keygen -Y verify -f "$_s" -I "$PRINCIPAL" -n "$NAMESPACE" -s "$_b/SHA256SUMS.sig" \
+    <"$_b/SHA256SUMS" 2>&1) || die "SIGNATURE CHECK FAILED: do not install this bundle"
+  say "signature: $_good"
+  [ -z "$(find "$_b" -type l | head -n 1)" ] || die "the bundle contains links"
+  _t=$(mktemp -d)
+  (cd "$_b" && find . -type f ! -name SHA256SUMS ! -name SHA256SUMS.sig | sed 's|^\./||' | LC_ALL=C sort) >"$_t/found"
+  sed 's/^[0-9a-f]\{64\}  //' "$_b/SHA256SUMS" | LC_ALL=C sort >"$_t/listed"
+  _extra=$(LC_ALL=C comm -23 "$_t/found" "$_t/listed")
+  rm -rf "$_t"
+  [ -z "$_extra" ] || die "files not in SHA256SUMS: $_extra"
+  (cd "$_b" && sha256sum --quiet --strict -c SHA256SUMS) || die "CHECKSUM MISMATCH: do not install this bundle"
+  say "hashes: all $(wc -l <"$_b/SHA256SUMS" | tr -d ' ') files match"
+  if [ "$(relval "$_b" NGOCR_DIRTY)" = true ]; then
+    say "WARNING: built from uncommitted changes (a rehearsal bundle, not a release)"
+  fi
+}
+
+# load_images DIR: load each archive unless already present, then check its content ID.
+load_images() {
+  _b=$1
+  while read -r _name _archive _id _tag; do
+    if [ "$(image_id "$_tag")" = "$_id" ]; then
+      say "image $_name: present ($_tag)"
+      continue
+    fi
+    [ -f "$_b/$_archive" ] || die "image $_name is not loaded and $_archive is missing"
+    $ENGINE load -i "$_b/$_archive" </dev/null >/dev/null
+    _got=$(image_id "$_tag")
+    [ "$_got" = "$_id" ] || die "image $_name: loaded ID ${_got:-none}, the manifest says $_id"
+    say "image $_name: loaded and verified (${_id%"${_id#????????????}"})"
+  done <"$_b/images.txt"
+}
+
+# check_models DIR: the image's models match the bundle's lock, file by file.
+check_models() {
+  _b=$1
+  _app=$(image_tag "$_b" app)
+  _in=$($ENGINE run --rm --network none --read-only --cap-drop ALL --entrypoint sha256sum \
+    "$_app" /opt/ngocr/models.lock.json </dev/null | cut -d ' ' -f 1)
+  _want=$(sha256sum <"$_b/models.lock.json" | cut -d ' ' -f 1)
+  [ "$_in" = "$_want" ] || die "the image's model lock differs from the bundle's"
+  _log=$(mktemp)
+  $ENGINE run --rm -i --network none --read-only --cap-drop ALL "$_app" python - --verify \
+    --lock /opt/ngocr/models.lock.json --models-dir /opt/ngocr/models \
+    <"$_b/scripts/fetch_models.py" >"$_log" 2>&1 && _rc=0 || _rc=$?
+  if [ "$_rc" != 0 ]; then
+    cat "$_log" 2>/dev/null
+    rm -f "$_log"
+    die "model verification failed"
+  fi
+  say "models in the image: $(tail -n 1 "$_log")"
+  rm -f "$_log"
+}
+
+cmd_verify() { verify_bundle "$HERE"; }
+
+cmd_verify_installed() {
+  _r=$PREFIX/current
+  [ -d "$_r" ] || die "nothing installed under $PREFIX"
+  verify_bundle "$_r"
+  load_images "$_r"
+  check_models "$_r"
+}
+
+# ------------------------------------------------------------------ preflight
+version_at_least() { # have want (x.y)
+  awk -v h="$1" -v w="$2" 'BEGIN { split(h, a, "."); split(w, b, ".");
+    exit !((a[1] > b[1]) || (a[1] == b[1] && a[2] >= b[2])) }'
+}
+
+cmd_preflight() {
+  _fail=0
+  ok() { say "  ok    $*"; }
+  bad() { say "  FAIL  $*"; _fail=1; }
+  warn() { say "  warn  $*"; }
+  step "host checks"
+  for _tool in ssh-keygen sha256sum tar sed awk find comm od; do
+    command -v "$_tool" >/dev/null 2>&1 && ok "$_tool" || bad "$_tool not found"
+  done
+  if [ -z "$ENGINE" ]; then
+    bad "no container engine (podman or docker)"
+  else
+    _v=$($ENGINE version --format '{{.Client.Version}}' 2>/dev/null || $ENGINE --version | grep -o '[0-9]*\.[0-9]*\.[0-9]*' | head -n 1)
+    case $ENGINE in
+      *podman*) _min=4.9 ;;
+      *) _min=24.0 ;;
+    esac
+    version_at_least "$_v" "$_min" && ok "$ENGINE $_v" || bad "$ENGINE $_v (need $_min or later)"
+    _c=$($ENGINE compose version 2>/dev/null | grep -o '[0-9]*\.[0-9]*\.[0-9]*' | head -n 1 || true)
+    if [ -z "$_c" ]; then
+      bad "Compose v2 not available ($ENGINE compose version)"
+    else
+      version_at_least "$_c" 2.20 && ok "compose $_c" || bad "compose $_c (need Compose v2.20 or later)"
+    fi
+    case $ENGINE in
+      *podman*)
+        [ "$($ENGINE info --format '{{.Host.RemoteSocket.Exists}}' 2>/dev/null)" = true ] &&
+          ok "podman API socket" || bad "podman API socket not running (systemctl [--user] enable --now podman.socket)"
+        _store=$($ENGINE info --format '{{.Store.GraphRoot}}' 2>/dev/null) ;;
+      *) _store=$($ENGINE info --format '{{.DockerRootDir}}' 2>/dev/null) ;;
+    esac
+    _free() { df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print int($4 / 1048576) }'; }
+    if [ -n "${_store:-}" ]; then
+      _g=$(_free "$_store")
+      [ "${_g:-0}" -ge 15 ] && ok "image storage: ${_g} GiB free" || bad "image storage $_store: ${_g:-?} GiB free (need 15)"
+    fi
+  fi
+  _p=$PREFIX
+  while [ ! -d "$_p" ]; do _p=$(dirname "$_p"); done
+  _g=$(df -Pk "$_p" | awk 'NR == 2 { print int($4 / 1048576) }')
+  [ "$_g" -ge 15 ] && ok "$PREFIX: ${_g} GiB free" || bad "$PREFIX: ${_g} GiB free (need 15 for two releases and backups)"
+  _m=$(awk '/^MemTotal:/ { print int($2 / 1048576) }' /proc/meminfo 2>/dev/null || echo 0)
+  if [ "$_m" -ge 12 ]; then ok "memory: ${_m} GiB"; elif [ "$_m" -ge 8 ]; then warn "memory: ${_m} GiB (12 recommended)"; else bad "memory: ${_m} GiB (need 8)"; fi
+  _n=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+  [ "$_n" -ge 4 ] && ok "CPUs: $_n" || warn "CPUs: $_n (4 recommended)"
+  [ "$_fail" -eq 0 ] || die "preflight failed"
+}
+
+# ------------------------------------------------------------------ site configuration
+random_hex() { od -An -tx1 -N24 /dev/urandom | tr -d ' \n'; }
+
+configure_site() {
+  _c=$PREFIX/config
+  mkdir -p "$_c"
+  chmod 0700 "$_c"
+  if [ ! -f "$_c/site.env" ]; then
+    sed -e "s|^NGOCR_SECRETS_PATH=.*|NGOCR_SECRETS_PATH=$_c/secrets|" \
+      -e "s|^NGOCR_BACKUP_DIR=.*|NGOCR_BACKUP_DIR=$PREFIX/backups|" \
+      -e "s|^NGOCR_TLS_HOSTNAME=.*|NGOCR_TLS_HOSTNAME=${HOSTNAME_OPT:-localhost}|" \
+      -e "s|^NGOCR_HTTPS_BIND=.*|NGOCR_HTTPS_BIND=${BIND_OPT:-127.0.0.1}|" \
+      "$HERE/config/site.env.example" >"$_c/site.env"
+    say "site settings: $_c/site.env (edit, then ngocrctl restart)"
+  fi
+  if [ -n "${SIGNERS:-}" ] && [ "$(cd "$(dirname "$SIGNERS")" && pwd)/$(basename "$SIGNERS")" != "$_c/allowed_signers" ]; then
+    cp "$SIGNERS" "$_c/allowed_signers"
+    chmod 0444 "$_c/allowed_signers"
+  fi
+  _s=$(site_value NGOCR_SECRETS_PATH)
+  mkdir -p "$_s/tls"
+  chmod 0700 "$_s" "$_s/tls"
+  for _name in postgres_password valkey_password; do
+    [ -f "$_s/$_name" ] || random_hex >"$_s/$_name"
+  done
+  printf 'postgresql+psycopg://ngocr:%s@postgres:5432/ngocr' "$(cat "$_s/postgres_password")" >"$_s/.database_url"
+  mv -f "$_s/.database_url" "$_s/database_url"
+  printf 'redis://:%s@valkey:6379/0' "$(cat "$_s/valkey_password")" >"$_s/.broker_url"
+  mv -f "$_s/.broker_url" "$_s/broker_url"
+  # Readable by the containers' non-root users; the directory itself is owner-only.
+  chmod 0444 "$_s/postgres_password" "$_s/valkey_password" "$_s/database_url" "$_s/broker_url"
+
+  if [ -n "${TLS_CERT:-}" ]; then
+    [ -n "${TLS_KEY:-}" ] && [ -n "${TLS_CA:-}" ] || die "--tls-cert needs --tls-key and --tls-ca"
+    cp "$TLS_CERT" "$_s/tls/server.crt"
+    cp "$TLS_KEY" "$_s/tls/server.key"
+    cp "$TLS_CA" "$_s/tls/ca.crt"
+  elif [ "${SELF_SIGNED:-0}" = 1 ] && [ ! -f "$_s/tls/server.crt" ]; then
+    command -v openssl >/dev/null 2>&1 || die "--self-signed-tls needs openssl"
+    _h=$(site_value NGOCR_TLS_HOSTNAME)
+    (
+      cd "$_s/tls"
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 365 \
+        -subj "/CN=New Gen AI OCR site CA" -keyout ca.key -out ca.crt 2>/dev/null
+      openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=$_h" \
+        -keyout server.key -out server.csr 2>/dev/null
+      printf 'subjectAltName=DNS:%s,DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\nkeyUsage=digitalSignature\nbasicConstraints=CA:FALSE\n' \
+        "$_h" >server.ext
+      openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 365 \
+        -extfile server.ext -out server.crt 2>/dev/null
+      # The CA key is not needed again: a new certificate means a new CA.
+      rm -f server.csr server.ext ca.srl ca.key
+    )
+    say "TLS: self-signed for $_h; clients must trust $_s/tls/ca.crt"
+  fi
+  for _f in server.crt server.key ca.crt; do
+    [ -f "$_s/tls/$_f" ] || die "no TLS $_f: pass --tls-cert/--tls-key/--tls-ca, or --self-signed-tls"
+  done
+  chmod 0444 "$_s/tls/server.crt" "$_s/tls/ca.crt"
+  chmod 0400 "$_s/tls/server.key"
+  mkdir -p "$PREFIX/backups"
+  chmod 0700 "$PREFIX/backups"
+}
+
+# ------------------------------------------------------------------ operations
+up() { compose "$1" --profile app up -d --wait --wait-timeout 900; }
+
+backup_with() { # RELEASE_DIR -> prints the new backup's timestamp
+  # The new backup is found on disk (complete: renamed from .partial, with its sums), not by
+  # parsing the container's output.
+  _dir=$(site_value NGOCR_BACKUP_DIR)
+  _before=$(ls "$_dir" 2>/dev/null || true)
+  _out=$(compose "$1" --profile ops run --rm -T backup </dev/null 2>&1) || { say "$_out" >&2; die "backup failed"; }
+  for _s in $(ls "$_dir"); do
+    case $_s in *.partial) continue ;; esac
+    printf '%s\n' "$_before" | grep -qx "$_s" && continue
+    [ -f "$_dir/$_s/SHA256SUMS" ] && printf '%s\n' "$_s"
+  done | tail -n 1
+}
+
+cmd_backup() {
+  _r=$PREFIX/current
+  lock
+  step "backup (API and workers paused for a consistent copy)"
+  compose "$_r" --profile app stop api worker ingress
+  _stamp=$(backup_with "$_r")
+  up "$_r" >/dev/null
+  record "backup $_stamp"
+  say "backup: $(site_value NGOCR_BACKUP_DIR)/$_stamp"
+}
+
+restore_with() { # RELEASE_DIR STAMP
+  [ -f "$(site_value NGOCR_BACKUP_DIR)/$2/SHA256SUMS" ] || die "no backup $2"
+  compose "$1" --profile app stop api worker ingress 2>/dev/null || true
+  compose "$1" up -d --wait postgres valkey
+  BACKUP=$2 compose "$1" --profile ops run --rm -T restore </dev/null
+}
+
+cmd_restore() {
+  [ $# -eq 1 ] || die "usage: ngocrctl restore STAMP"
+  _r=$PREFIX/current
+  lock
+  step "restore $1"
+  restore_with "$_r" "$1"
+  up "$_r"
+  ops_verify "$_r"
+  record "restore $1"
+}
+
+ops_verify() {
+  _report=$(compose "$1" exec -T api python -m newgen_ocr.ops verify </dev/null)
+  printf '%s\n' "$_report" | grep -q '"ok": true' || { say "$_report"; die "stored data verification failed"; }
+  say "stored data: verified ($(printf '%s\n' "$_report" | sed -n 's/.*"documents": \([0-9]*\).*/\1/p' | head -n 1) documents)"
+}
+
+cmd_status() {
+  say "prefix:   $PREFIX"
+  say "current:  $(current_release)"
+  say "previous: $(cat "$PREFIX/state/previous" 2>/dev/null || echo -)"
+  compose "$PREFIX/current" --profile app ps
+}
+
+cmd_start() { up "$PREFIX/current"; }
+cmd_stop() { compose "$PREFIX/current" --profile app stop; }
+cmd_restart() { compose "$PREFIX/current" --profile app down && up "$PREFIX/current"; }
+
+cmd_create_admin() {
+  [ "${1:-}" = --user ] && [ -n "${2:-}" ] || die "usage: ngocrctl create-admin --user NAME"
+  stty -echo 2>/dev/null || true
+  printf 'Password for %s: ' "$2" >&2
+  read -r _p1
+  printf '\nRepeat it: ' >&2
+  read -r _p2
+  stty echo 2>/dev/null || true
+  printf '\n' >&2
+  [ "$_p1" = "$_p2" ] || die "the passwords differ"
+  printf '%s\n' "$_p1" | compose "$PREFIX/current" exec -T api python -m newgen_ocr.auth \
+    user-create --user "$2" --role admin --password-stdin
+}
+
+# ------------------------------------------------------------------ smoke tests
+smoke_ocr() {
+  _app=$(image_tag "$1" app)
+  step "OCR with no network at all (every enabled model, one invoice end to end)"
+  _log=$(mktemp)
+  _out=$($ENGINE run --rm -i --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --tmpfs /tmp:size=1g -e HOME=/tmp -e TMPDIR=/tmp \
+    -v "$1/scripts:/smoke:ro" "$_app" python - /smoke <"$1/scripts/smoke_ocr.py" 2>"$_log" | tail -n 1) || true
+  say "$_out"
+  if ! printf '%s' "$_out" | grep -q '"passed": true'; then
+    tail -n 20 "$_log"
+    rm -f "$_log"
+    return 1
+  fi
+  rm -f "$_log"
+}
+
+# egress_ok PROBE_JSON: nothing outside was reached, and the database control was.
+egress_ok() {
+  _reached=$(printf '%s\n' "$1" | grep -o '"[a-z]*:[^"]*": "REACHED"' | grep -vc '"control:' || true)
+  [ "$_reached" = 0 ] && printf '%s' "$1" | grep -q '"control:postgres:5432": "REACHED"'
+}
+
+smoke_egress() {
+  step "egress from the API and worker containers"
+  _rc=0
+  for _svc in api worker; do
+    _out=$(compose "$1" exec -T "$_svc" python - <"$1/scripts/probe_egress.py" | tail -n 1)
+    say "$_svc: $_out"
+    egress_ok "$_out" || _rc=1
+  done
+  return $_rc
+}
+
+smoke_job() {
+  _r=$1
+  _app=$(image_tag "$_r" app)
+  step "a job through the TLS ingress, as a client on this host"
+  _t=$(mktemp -d)
+  chmod 0755 "$_t"
+  _token=$(compose "$_r" exec -T api python -m newgen_ocr.auth create --user ngocr-smoke \
+    --role submitter --expires-days 1 </dev/null 2>/dev/null | tail -n 1)
+  _tid=$(printf '%s' "$_token" | cut -d _ -f 2)
+  printf '%s' "$_token" >"$_t/token"
+  chmod 0444 "$_t/token"
+  _bind=$(site_value NGOCR_HTTPS_BIND)
+  [ "$_bind" = 0.0.0.0 ] && _bind=127.0.0.1
+  _rc=0
+  _out=$($ENGINE run --rm -i --network host --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --tmpfs /tmp -e HOME=/tmp \
+    -v "$_t/token:/run/smoke/token:ro" \
+    -v "$(site_value NGOCR_SECRETS_PATH)/tls/ca.crt:/run/smoke/ca.crt:ro" \
+    -v "$_r/scripts:/smoke:ro" \
+    "$_app" python - "$_bind" "$(site_value NGOCR_HTTPS_PORT)" "$(site_value NGOCR_TLS_HOSTNAME)" \
+    /run/smoke/ca.crt /run/smoke/token /smoke <"$_r/scripts/smoke_api.py" 2>&1 | tail -n 1) || _rc=1
+  compose "$_r" exec -T api python -m newgen_ocr.auth revoke "$_tid" </dev/null >/dev/null 2>&1 || true
+  rm -rf "$_t"
+  say "$_out"
+  printf '%s' "$_out" | grep -q '"passed": true' || _rc=1
+  return $_rc
+}
+
+cmd_smoke() {
+  _job=1
+  _restart=0
+  for _a in "$@"; do
+    case $_a in
+      --no-job) _job=0 ;;
+      --restart) _restart=1 ;;
+      *) die "smoke: unknown option $_a" ;;
+    esac
+  done
+  _r=$PREFIX/current
+  _fail=0
+  if [ "$_restart" = 1 ]; then
+    step "restart every service; nothing may be downloaded or pulled"
+    _before=$($ENGINE images -q --no-trunc | LC_ALL=C sort -u)
+    _since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    compose "$_r" --profile app down
+    up "$_r"
+    _after=$($ENGINE images -q --no-trunc | LC_ALL=C sort -u)
+    if [ "$_before" = "$_after" ]; then say "images: unchanged ($(printf '%s\n' "$_after" | wc -l | tr -d ' '))"; else say "images CHANGED"; _fail=1; fi
+    _out=$(compose "$_r" exec -T api python - --verify --lock /opt/ngocr/models.lock.json \
+      --models-dir /opt/ngocr/models <"$_r/scripts/fetch_models.py" 2>&1) && say "models: unchanged" ||
+      { say "$_out"; _fail=1; }
+    _hits=$(compose "$_r" --profile app logs --no-color --since "$_since" api worker 2>&1 |
+      grep -ciE 'download|huggingface|bcebos|pypi\.org|modelscope' || true)
+    if [ "$_hits" = 0 ]; then say "logs: no download attempts"; else say "logs: $_hits lines mention downloads"; _fail=1; fi
+  fi
+  smoke_ocr "$_r" || _fail=1
+  smoke_egress "$_r" || _fail=1
+  if [ "$_job" = 1 ]; then smoke_job "$_r" || _fail=1; fi
+  if [ "$_fail" = 0 ]; then
+    record "smoke passed $(current_release)"
+    say "SMOKE TEST PASSED"
+  else
+    record "smoke FAILED $(current_release)"
+    die "SMOKE TEST FAILED"
+  fi
+}
+
+# ------------------------------------------------------------------ install and rollback
+switch_current() {
+  ln -sfn "releases/$1" "$PREFIX/.current.new"
+  mv -fT "$PREFIX/.current.new" "$PREFIX/current"
+}
+
+cmd_install() {
+  _smoke=1
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --signers) SIGNERS=$2; shift ;;
+      --prefix) PREFIX=$2; shift ;;
+      --tls-cert) TLS_CERT=$2; shift ;;
+      --tls-key) TLS_KEY=$2; shift ;;
+      --tls-ca) TLS_CA=$2; shift ;;
+      --self-signed-tls) SELF_SIGNED=1 ;;
+      --hostname) HOSTNAME_OPT=$2; shift ;;
+      --bind) BIND_OPT=$2; shift ;;
+      --no-smoke) _smoke=0 ;;
+      *) die "install: unknown option $1" ;;
+    esac
+    shift
+  done
+  [ -f "$HERE/MANIFEST.json" ] || die "run install from an extracted bundle"
+  _new=$(relval "$HERE" NGOCR_RELEASE)
+  step "verify bundle $_new"
+  verify_bundle "$HERE"
+  cmd_preflight
+  mkdir -p "$PREFIX/releases"
+  lock
+  step "load and verify images"
+  load_images "$HERE"
+  check_models "$HERE"
+
+  step "install release files"
+  _dest=$PREFIX/releases/$_new
+  if [ -d "$_dest" ]; then
+    cmp -s "$_dest/SHA256SUMS" "$HERE/SHA256SUMS" ||
+      die "a different bundle named $_new is already installed"
+    say "$_dest: already installed"
+  else
+    rm -rf "$PREFIX/releases/.incoming"
+    cp -R "$HERE" "$PREFIX/releases/.incoming"
+    (cd "$PREFIX/releases/.incoming" && sha256sum --quiet --strict -c SHA256SUMS) || die "copy damaged"
+    # Release files are not secret, and the containers' non-root users read some of them
+    # (smoke scripts, nginx.conf); nobody may change them.
+    chmod -R a+rX,a-w "$PREFIX/releases/.incoming"
+    mv "$PREFIX/releases/.incoming" "$_dest"
+    say "$_dest"
+  fi
+  configure_site
+
+  _old=$(current_release)
+  if [ -n "$_old" ] && [ "$_old" != "$_new" ]; then
+    _oldhead=$(relval "$PREFIX/releases/$_old" NGOCR_SCHEMA_HEAD)
+    _newhead=$(relval "$_dest" NGOCR_SCHEMA_HEAD)
+    if [ "$(printf '%s\n%s\n' "$_oldhead" "$_newhead" | LC_ALL=C sort | tail -n 1)" != "$_newhead" ]; then
+      die "$_new has an older database schema ($_newhead) than $_old ($_oldhead): use rollback"
+    fi
+    step "upgrade $_old -> $_new: back up first"
+    compose "$PREFIX/releases/$_old" --profile app stop api worker ingress
+    _stamp=$(backup_with "$PREFIX/releases/$_old") || _stamp=""
+    if [ -z "$_stamp" ]; then
+      up "$PREFIX/releases/$_old" >/dev/null 2>&1 || true
+      die "the pre-upgrade backup failed: $_old is running again, nothing was changed"
+    fi
+    printf '%s %s\n' "$_stamp" "$_old" >"$PREFIX/state/upgrade-backup"
+    printf '%s\n' "$_old" >"$PREFIX/state/previous"
+    say "backup: $_stamp (restored by rollback if needed)"
+    compose "$PREFIX/releases/$_old" --profile app down
+  fi
+  switch_current "$_new"
+  record "install $_new (from ${_old:-nothing})"
+
+  step "start $_new (migrations run first)"
+  if ! up "$PREFIX/current"; then
+    compose "$PREFIX/current" --profile app ps || true
+    [ -n "$_old" ] && [ "$_old" != "$_new" ] && say "To return to $_old: $PREFIX/current/ngocrctl rollback"
+    die "services did not become healthy"
+  fi
+  if [ "$_smoke" = 1 ]; then
+    if ! (cmd_smoke); then
+      [ -n "$_old" ] && [ "$_old" != "$_new" ] && say "To return to $_old: $PREFIX/current/ngocrctl rollback"
+      exit 1
+    fi
+  fi
+  say "installed $_new under $PREFIX. Next: $PREFIX/current/ngocrctl create-admin --user NAME"
+}
+
+cmd_rollback() {
+  _restore=auto
+  _to=""
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --to) _to=$2; shift ;;
+      --restore) _restore=yes ;;
+      --no-restore) _restore=no ;;
+      *) die "rollback: unknown option $1" ;;
+    esac
+    shift
+  done
+  _cur=$(current_release)
+  [ -n "$_to" ] || _to=$(cat "$PREFIX/state/previous" 2>/dev/null || true)
+  [ -n "$_to" ] || die "no previous release recorded: pass --to RELEASE"
+  [ "$_to" != "$_cur" ] || die "$_to is already current"
+  _target=$PREFIX/releases/$_to
+  [ -d "$_target" ] || die "release $_to is not installed"
+  lock
+  step "verify $_to"
+  verify_bundle "$_target"
+  load_images "$_target"
+
+  _curhead=$(relval "$PREFIX/releases/$_cur" NGOCR_SCHEMA_HEAD)
+  _tohead=$(relval "$_target" NGOCR_SCHEMA_HEAD)
+  if [ "$_restore" = auto ]; then
+    if [ "$_curhead" = "$_tohead" ]; then _restore=no; else _restore=yes; fi
+  fi
+  if [ "$_restore" = no ] && [ "$_curhead" != "$_tohead" ]; then
+    die "$_to expects schema $_tohead, the database is at $_curhead: rollback needs --restore"
+  fi
+  _stamp=""
+  if [ "$_restore" = yes ]; then
+    read -r _stamp _from <"$PREFIX/state/upgrade-backup" 2>/dev/null || die "no pre-upgrade backup recorded"
+    [ "$_from" = "$_to" ] || die "the recorded backup ($_stamp) was taken under $_from, not $_to"
+    say "will restore $_stamp: changes made since the upgrade are lost"
+  fi
+
+  step "stop $_cur"
+  compose "$PREFIX/releases/$_cur" --profile app down
+  switch_current "$_to"
+  printf '%s\n' "$_cur" >"$PREFIX/state/previous"
+  record "rollback $_cur -> $_to (restore: ${_stamp:-no})"
+  if [ -n "$_stamp" ]; then
+    step "restore the pre-upgrade backup $_stamp"
+    restore_with "$PREFIX/current" "$_stamp"
+  fi
+  step "start $_to"
+  up "$PREFIX/current"
+  ops_verify "$PREFIX/current"
+  (cmd_smoke --no-job) || die "smoke test failed after rollback"
+  say "rolled back to $_to"
+}
+
+cmd_prune() {
+  _cur=$(current_release)
+  _prev=$(cat "$PREFIX/state/previous" 2>/dev/null || true)
+  lock
+  for _d in "$PREFIX"/releases/*; do
+    _n=$(basename "$_d")
+    [ "$_n" = "$_cur" ] || [ "$_n" = "$_prev" ] && continue
+    while read -r _name _archive _id _tag; do $ENGINE rmi "$_tag" </dev/null >/dev/null 2>&1 || true; done <"$_d/images.txt"
+    chmod -R u+w "$_d"
+    rm -rf "$_d"
+    record "prune $_n"
+    say "removed $_n"
+  done
+}
+
+# ------------------------------------------------------------------ dispatch
+# Tests source this file for its functions.
+[ "${NGOCRCTL_SOURCED:-}" = 1 ] && return 0
+[ -n "$ENGINE" ] || [ "${1:-}" = verify ] || [ "${1:-}" = preflight ] || die "no container engine (podman or docker)"
+_cmd=${1:-help}
+[ $# -gt 0 ] && shift
+case $_cmd in
+  verify)
+    while [ $# -gt 0 ]; do
+      case $1 in --signers) SIGNERS=$2; shift ;; *) die "verify: unknown option $1" ;; esac
+      shift
+    done
+    cmd_verify ;;
+  verify-installed) cmd_verify_installed ;;
+  preflight) cmd_preflight ;;
+  install) cmd_install "$@" ;;
+  status) cmd_status ;;
+  start) cmd_start ;;
+  stop) cmd_stop ;;
+  restart) cmd_restart ;;
+  smoke) cmd_smoke "$@" ;;
+  backup) cmd_backup ;;
+  restore) cmd_restore "$@" ;;
+  rollback) cmd_rollback "$@" ;;
+  create-admin) cmd_create_admin "$@" ;;
+  prune) cmd_prune ;;
+  help | -h | --help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command $_cmd (try: ngocrctl help)" ;;
+esac

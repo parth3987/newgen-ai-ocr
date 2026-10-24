@@ -574,6 +574,139 @@ scanning; the minimal OpenCV built from source in the image.
   image SBOM, and fails on fixable HIGH or CRITICAL findings. It also scans the repository
   for misconfiguration. Trivy downloads its database at staging only. Closes OD-5.
 
+### ADR-0032: Signed offline installation bundle, ngocrctl, and rollback (2026-10-24)
+Phase 12. The owner's choices: commit Phase 11 first; sign with OpenSSH Ed25519; ship no OS
+packages and check the host instead.
+
+**Two workflows**, kept apart:
+- **Connected staging:** `make staging`.
+  - **Fetches and verifies:** the locked Python packages, the verified models and the web
+    application.
+  - **Runs the gates:** lint, types, licences, pip-audit, npm audit, Gitleaks, the full test
+    suite (JUnit report), the image build, Trivy, the SBOMs and the offline network test.
+  - **Then runs `make bundle`.**
+- **Disconnected production:** `ngocrctl`, a POSIX sh script. It needs only:
+  - a container engine with Compose v2;
+  - `ssh-keygen`;
+  - coreutils.
+
+  It never pulls an image or downloads anything (a test checks the script).
+
+**What the bundle builder (`scripts/build_bundle.py`) checks.** It packages only what the
+gates passed. It refuses a bundle unless:
+- the Trivy report and the image SBOM name the shipped image's content ID, with no fixable
+  HIGH or CRITICAL finding;
+- the offline test passed on that same image ID;
+- the JUnit report shows tests and no failures or errors;
+- the models verify against the lock with nothing unlisted;
+- the Python and npm licence checks pass;
+- every wheel's hash is in `requirements.lock`, and every locked package has a wheel;
+- the minimal OpenCV wheel has the hash recorded inside the image;
+- the image's version equals the source's;
+- the git tree is clean. `--allow-dirty` is for rehearsals only, and is recorded in the
+  bundle and printed at install.
+
+**Bundle contents** (`dist/newgen-ocr-<release>.tar`):
+- **Images:** the application image, plus PostgreSQL, Valkey and nginx pulled by digest,
+  saved as gzip docker-archives. Each is tagged `localhost/ngocr/<name>:<release>` and
+  recorded with its content ID. `config/compose.images.yaml` points every service at those
+  tags with `pull_policy: never`.
+- **Wheels:** all 97 locked wheels (cp311, manylinux x86-64), with PyPI's OpenCV replaced
+  by the minimal build, plus the application wheel and the lock.
+- **Models:** the model files and `models.lock.json`.
+- **Migrations:** the migration scripts, for review; the image runs them.
+- **Configuration:** compose, nginx, the backup and restore scripts, the egress template
+  and a site settings template.
+- **Licences and SBOMs:** licence notices, the model inventory, and both SBOMs.
+- **Evidence:** the Trivy, offline-test and JUnit reports.
+- **Documentation:** the offline deployment guide, the runbook, the security review, the
+  threat model and the changelog.
+- **The production tools:** `ngocrctl`, `INSTALL.md`, and the smoke and probe scripts that
+  run inside containers.
+- **OS packages:** listed per image under `os-packages/`. The application's OS packages are
+  inside its image; nothing is installed on the host.
+- **Manifests:** `MANIFEST.json`, a shell-readable `release.env` (release, version,
+  schema head, commit) and `images.txt`.
+
+**Integrity.**
+- **The bundle's own sums:** `SHA256SUMS` covers every file and is signed with
+  `ssh-keygen -Y sign`, namespace `newgen-ocr-bundle`, principal `newgen-ocr-release`.
+- **The outer tar:** written deterministically (sorted, fixed owner, modes and times) and
+  signed too, so it can be checked before extraction.
+- **The site's trusted key:** `newgen-ocr.allowed_signers`. It travels separately, and its
+  fingerprint is confirmed by a separate channel. `install` keeps a copy under
+  `<prefix>/config/` for later upgrades.
+- **What `ngocrctl verify` refuses:**
+  - a bad signature;
+  - any hash mismatch;
+  - any file not listed;
+  - any symbolic link.
+- **Images:** after loading, each image's content ID must equal the manifest's.
+- **Models:** the application image's model lock must equal the bundle's, and every model
+  file in the image is re-hashed. This runs in a container with `--network none`.
+
+**Installed layout:** under `<prefix>` (default `/opt/newgen-ocr`, or `NGOCR_PREFIX`).
+- `releases/<release>/` holds the verified bundle, read-only.
+- `current` is a symlink to the active release, switched atomically.
+- `config/` holds `site.env`, the secrets (generated on the host) and TLS. It is written
+  on the first install and never overwritten.
+- `backups/` holds the backups.
+- `state/` holds `previous`, `upgrade-backup`, `history` and a lock.
+
+The compose project name stays `newgen-ocr`, so data volumes carry over between releases.
+`NGOCR_SECRETS_PATH` points compose at the site's secrets; a checkout still uses
+`deploy/secrets/`.
+
+**Upgrade.**
+1. Refuses a release with an older schema head; use rollback for that.
+2. Stops the API, workers and ingress, then takes a backup with the old release's tools.
+3. Records the backup and the previous release.
+4. Switches `current` and starts the new release (migrations first).
+5. Runs the smoke tests. On failure it prints the rollback command. It never rolls back
+   on its own: restoring loses data, so the operator decides.
+
+**Rollback.**
+1. Verifies the target release again and reloads its images if needed.
+2. If the two schema heads differ, it must restore. It restores only the backup recorded
+   for an upgrade from that exact release.
+3. Stops, switches `current`, restores if needed, then starts.
+4. Runs `ops verify` (counts, fingerprint, history chain, files) and the smoke tests.
+
+`--no-restore` keeps newer data and is allowed only when the schemas match.
+
+**Smoke tests** (`ngocrctl smoke`, also run by `install`):
+- **OCR with no network:** a one-off container with `--network none` loads every model
+  the language matrix enables, and reads a generated invoice end to end in local mode.
+- **Egress probe:** from the API and worker containers, the same probe as `make
+  offline-test`.
+- **A job over HTTPS:** a container on the host network connects to the published HTTPS
+  address and checks the certificate against the site CA for the configured name. It uses
+  a one-day submitter token that is revoked afterwards. The test document stays and is
+  named `ngocr-smoke.png`.
+- **`--restart`:** first recreates every service. It then checks that the image store is
+  unchanged, the models still verify, and the logs show no download attempts.
+
+The smoke scripts use only the standard library and the package's public API, so they
+also check older releases after a rollback.
+
+**Rehearsal** (`make rehearse-install`, `scripts/rehearse_install.py`).
+- **The simulated host:** a user namespace (`unshare --map-auto`) with:
+  - a network namespace with only loopback (no DNS);
+  - an empty image store;
+  - its own cgroup tree (so limits apply);
+  - root Podman with its API socket.
+- **The run:** the whole production workflow with the real bundles. That is: outer
+  signature, extract, verify, install, `smoke --restart`, an upgrade to a second bundle,
+  new data, `rollback --restore`, and a data comparison.
+- **Root:** none needed.
+
+**Reproducibility.**
+- **Pinned:** every input (images by digest, Python and npm by hash, models by hash).
+- **Deterministic:** the bundle tar's bytes depend only on its contents.
+- **Not byte-reproducible:** the image is not. The OpenCV build and the image layers carry
+  timestamps. This is why the bundle identifies images by content ID and binds the gate
+  reports to that ID.
+
 ## Open decisions (defaults in force until decided)
 
 | ID | Question | Default assumption |
@@ -628,3 +761,5 @@ scanning; the minimal OpenCV built from source in the image.
 | OD-48 | Personal data in the review history | The history keeps extracted, previous and corrected values (masked for Aadhaar) and is append-only, so retention cannot delete it with the document. Options: keep (audit value) with a documented retention basis; store only value hashes in future events; or export and purge per records policy by a superuser |
 | OD-49 | Backup encryption | Backups are plain `pg_dump` and tar files in a 0700 directory. Default: store on encrypted media; option: encrypt with `age` or GPG at backup time (new tool, needs approval) |
 | OD-50 | Host egress rules | The nftables template is syntax-checked but not applied or tested here (needs root on the production host). Container egress is blocked and tested regardless (layer 1) |
+| OD-51 | Release signing key custody | The key is created at staging with a passphrase (`make signing-key`) outside the repository. Its public half and fingerprint reach the site by a separate channel. Open: a hardware token (`ssh-keygen -t ed25519-sk`), a second signer, and a rotation and revocation procedure |
+| OD-52 | Byte-reproducible images | Inputs are pinned, but the image and the OpenCV wheel carry build timestamps, so two builds differ. Images are identified by content ID instead. Open: `SOURCE_DATE_EPOCH` and rewritten timestamps |

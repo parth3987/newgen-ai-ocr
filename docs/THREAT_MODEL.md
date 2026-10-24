@@ -70,6 +70,7 @@ DECISIONS.md.
 | Document volume | **I** read access to stored documents | Directories 0750, files 0640, originals 0440, owned by the service user; temporary uploads on the volume (owner-only) | Encrypting the volume at rest is a host control (runbook) |
 | Backups | **I** a stolen backup; **T** a corrupted restore | Backup directory 0700; SHA-256 sums checked before restore; `ops verify` after restore | Backups are not encrypted by this tool: store them on encrypted media (OD-42) |
 | Supply chain | **T** a compromised package, image or model | Hash-pinned Python and npm locks, 14-day age rule, licence allowlists, pip-audit, npm audit and Trivy; images pinned by digest; models hash-locked and verified at build and at first use, with unlisted files refused; OpenCV built from a hash-checked source | Upstream compromise inside the age window before detection |
+| Release transfer (staging to production) | **T** a bundle altered in transit or on the host; **S** a bundle signed by someone else | Signed `SHA256SUMS` and outer tar (`ssh-keygen -Y`, a fixed namespace and principal). The trusted key comes by a separate channel, never from the bundle. Every hash is checked, and unlisted files and links are refused. Images are checked by content ID, models re-hashed in the image, and gate reports bound to the image ID at staging. `pull_policy: never` | A stolen staging signing key (OD-51: passphrase now, a hardware token later) |
 | Staging build | **T** a tampered build environment | Builds run only from the pinned inputs above; SBOM and scans kept with each release | No reproducible-build attestation yet |
 | Telemetry | **I** silent egress (analytics, model hubs, AI services) | None in the code; FastAPI telemetry off; PaddleX hub access disabled; CSP in the browser; no egress route (offline test) | — |
 
@@ -79,5 +80,9 @@ DECISIONS.md.
    review and an inventory entry.
 2. Has a data flow or port changed? Update this diagram, and check the compose networks and
    nginx.
-3. Run `make check`, `make secrets`, `make image-scan` and `make offline-test`, then a
-   backup and restore drill (SECURITY_REVIEW.md lists the evidence).
+3. Run `make staging`. It runs every gate (`check`, `secrets`, `image-scan`, `sbom`,
+   `offline-test`), then builds the signed bundle, which refuses an image the gates did not
+   pass for. Then run `make rehearse-install` with this bundle and the previous one, which
+   covers the backup, restore and rollback drill. SECURITY_REVIEW.md lists the evidence.
+4. Send the bundle, its signature and (if the key changed) the allowed-signers file with
+   its fingerprint by separate channels.

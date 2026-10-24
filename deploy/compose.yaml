@@ -4,6 +4,9 @@
 #   make stack-up         + migrations, API, workers and the TLS ingress (profile "app")
 #   make backup / make restore BACKUP=…   (profile "ops")
 #
+# An installed release (ADR-0032) adds compose.images.yaml from the bundle: the images it
+# loaded, by local tag, with pulling disabled.
+#
 # Networks:
 #   backend  internal: PostgreSQL, Valkey, API, workers. No route outside the host.
 #   edge     internal: ingress <-> API.
@@ -211,16 +214,18 @@ volumes:
   valkey-data:
   documents:
 
+# Secret files: deploy/secrets/ in a checkout; the site's own directory for an installed
+# release (NGOCR_SECRETS_PATH, set by ngocrctl, ADR-0032).
 secrets:
   postgres_password:
-    file: ./secrets/postgres_password
+    file: ${NGOCR_SECRETS_PATH:-./secrets}/postgres_password
   valkey_password:
-    file: ./secrets/valkey_password
+    file: ${NGOCR_SECRETS_PATH:-./secrets}/valkey_password
   database_url:
-    file: ./secrets/database_url
+    file: ${NGOCR_SECRETS_PATH:-./secrets}/database_url
   broker_url:
-    file: ./secrets/broker_url
+    file: ${NGOCR_SECRETS_PATH:-./secrets}/broker_url
   tls_cert:
-    file: ./secrets/tls/server.crt
+    file: ${NGOCR_SECRETS_PATH:-./secrets}/tls/server.crt
   tls_key:
-    file: ./secrets/tls/server.key
+    file: ${NGOCR_SECRETS_PATH:-./secrets}/tls/server.key

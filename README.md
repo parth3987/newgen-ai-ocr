@@ -12,6 +12,19 @@ scanned PDFs and handwriting recognition.
 
 ## Status
 
+Phase 12 (offline installation bundle) is complete. `make staging` runs every check at a
+connected staging host and produces a signed bundle. It contains:
+- the images, by content ID;
+- the locked wheels;
+- the models;
+- the configuration;
+- the migrations;
+- the licences and SBOMs.
+
+On the disconnected production host, `ngocrctl` verifies the bundle, installs it, starts the
+services and runs offline smoke tests. It also handles upgrades (with a backup first) and
+rollback. See [OFFLINE_DEPLOYMENT](docs/OFFLINE_DEPLOYMENT.md) and
+[ADR-0032](docs/DECISIONS.md).
 Phase 11 (security and open-source compliance) is complete. The production deployment is a
 hardened container stack behind a TLS ingress, with:
 - a minimal source-built OpenCV and hash-verified models;
@@ -87,7 +100,8 @@ Service mode (PostgreSQL, Valkey and workers; uploads queue the whole pipeline) 
 application (`make frontend`, then `http://127.0.0.1:8000/app/`): see "Service mode" and
 "Web application" in [OPERATIONS_RUNBOOK](docs/OPERATIONS_RUNBOOK.md). Production containers
 (`make images`, `make stack-up`, then `https://127.0.0.1:8443/app/`): see "Production stack"
-there, and [OFFLINE_DEPLOYMENT](docs/OFFLINE_DEPLOYMENT.md).
+there. Production hosts install from the signed bundle (`make staging` at staging, then
+`ngocrctl install` on the host): see [OFFLINE_DEPLOYMENT](docs/OFFLINE_DEPLOYMENT.md).
 
 Configuration: see [.env.example](.env.example).
 

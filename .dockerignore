@@ -11,3 +11,4 @@
 !models.lock.json
 **/__pycache__
 **/*.pyc
+**/*.egg-info

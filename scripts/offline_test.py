@@ -34,30 +34,8 @@ PROJECT = "ngocr-offline"
 PORT = 18443
 USER, PASSWORD = "offline-admin", "offline test password 1"  # throwaway test account
 
-PROBE = r"""
-import json, socket, ssl, urllib.request
-out = {}
-def attempt(name, fn):
-    try:
-        fn(); out[name] = "REACHED"
-    except Exception as exc:
-        out[name] = f"blocked ({type(exc).__name__})"
-attempt("dns:pypi.org", lambda: socket.getaddrinfo("pypi.org", 443))
-attempt("dns:huggingface.co", lambda: socket.getaddrinfo("huggingface.co", 443))
-attempt("tcp:1.1.1.1:443", lambda: socket.create_connection(("1.1.1.1", 443), 3).close())
-attempt("tcp:8.8.8.8:53", lambda: socket.create_connection(("8.8.8.8", 53), 3).close())
-def udp():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(3)
-    query = b"\x12\x34\x01\x00\x00\x01" + b"\x00" * 6 + b"\x03www\x00\x00\x01\x00\x01"
-    s.sendto(query, ("8.8.8.8", 53))
-    s.recvfrom(512)
-attempt("udp:8.8.8.8:53", udp)
-attempt("https:huggingface.co", lambda: urllib.request.urlopen("https://huggingface.co", timeout=5))
-BOS = "https://paddle-model-ecology.bj.bcebos.com"
-attempt("https:paddle-model-ecology", lambda: urllib.request.urlopen(BOS, timeout=5))
-attempt("control:postgres:5432", lambda: socket.create_connection(("postgres", 5432), 3).close())
-print(json.dumps(out))
-"""
+# The same probe ngocrctl runs on the production host.
+PROBE = (ROOT / "deploy" / "bundle" / "probe_egress.py").read_text()
 
 
 def compose(*args: str, image: str, stdin: str | None = None, check: bool = True) -> str:
@@ -159,10 +137,13 @@ def run_job(ca: Path) -> dict[str, Any]:
         doc = job["document_id"]
         result = client.get(f"/api/v1/documents/{doc}/extraction/auto").json()
         values = {f["name"]: f["value"] for f in result["fields"]}
-        checked = ("gstin_seller", "invoice_number", "grand_total")
+        checked = ("seller_gstin", "buyer_gstin", "invoice_number", "invoice_date", "grand_total")
+        expected = {k: truth.fields.get(k) for k in checked}
+        if any(v in (None, "") for v in expected.values()):
+            raise RuntimeError(f"the truth has empty fields: {expected}")  # never compare None
         out["extraction"] = {
             "schema_id": result["schema_id"],
-            "matches": {k: values.get(k) == truth.fields.get(k) for k in checked},
+            "matches": {k: values.get(k) == v for k, v in expected.items()},
         }
         export = client.get(
             f"/api/v1/documents/{doc}/extraction/auto/export", params={"format": "xlsx"}
@@ -181,7 +162,15 @@ def main() -> int:
     subprocess.run(  # noqa: S603  # nosec B603 - our own Makefile, fixed arguments
         [make, "--no-print-directory", "services-secrets"], cwd=ROOT, check=True
     )
-    report: dict[str, Any] = {"image": args.image}
+    engine = "podman" if shutil.which("podman") else "docker"
+    image_id = subprocess.run(  # noqa: S603  # nosec B603 - fixed arguments
+        [engine, "image", "inspect", "--format", "{{.Id}}", args.image],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    # The bundle builder checks that this report is about the image it ships.
+    report: dict[str, Any] = {"image": args.image, "image_id": image_id.removeprefix("sha256:")}
     try:
         compose("up", "-d", "--wait", image=args.image)
         compose(

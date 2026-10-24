@@ -6,7 +6,7 @@
 make venv        # create .venv from the hash-pinned locks (Python 3.11)
 make lint        # ruff format --check + ruff check
 make typecheck   # mypy --strict on src/newgen_ocr
-make test        # pytest with coverage (fails under 90%)
+make test        # pytest with coverage (fails under 90%); JUnit report -> reports/pytest.xml
 make security    # bandit + pip-audit (both locks, --disable-pip: no package downloads)
 make licenses    # runtime license allowlist
 make secrets     # gitleaks (git history + working tree; needs Docker)
@@ -30,6 +30,9 @@ make images      # STAGING: build the production image (minimal OpenCV, models i
 make image-scan  # STAGING: Trivy on the image and repository, image SBOM -> reports/
 make offline-test  # production stack with no egress: network probes + a job over TLS
 make backup && make restore BACKUP=<timestamp>   # backup/restore drill with verification
+make staging     # STAGING (network): every gate above, then the signed bundle
+make bundle      # the signed offline bundle of IMAGE, from the gates' reports -> dist/
+make rehearse-install REHEARSAL_ARGS="--bundle … --upgrade-bundle …"   # production workflow, no network
 ```
 
 **Release checks** (Phase 11, run per release and recorded in SECURITY_REVIEW.md):
@@ -38,6 +41,23 @@ make backup && make restore BACKUP=<timestamp>   # backup/restore drill with ver
   succeeds, if the database control fails, if TLS 1.1 or plain HTTP is accepted, if the job
   fails or extracts wrong values, or if production does not run the minimal OpenCV.
 - The restore drill: `ops verify` before and after must match, and report `"ok": true`.
+
+**Bundle checks** (Phase 12, ADR-0032):
+- `make bundle` refuses unless the Trivy, image-SBOM and offline-test reports name the
+  shipped image's content ID, Trivy has no fixable HIGH or CRITICAL finding, and
+  `reports/pytest.xml` has no failures or errors. It also checks every wheel against the
+  lock, and the models and licences.
+- `tests/unit/test_bundle.py`:
+  - each gate refusal;
+  - the wheel and lock checks;
+  - the deterministic tar;
+  - that the images override covers every compose service;
+  - `ngocrctl verify` under `dash` (POSIX sh): a signed bundle passes, and it refuses a
+    changed file, an unlisted file, re-hashed sums, another signer's key, and links;
+  - that `ngocrctl` never pulls or downloads, and that every one-off container is offline
+    except the ingress client.
+- `make rehearse-install` writes `reports/install-rehearsal.json`. It fails if any step
+  fails, or if the data after rollback differs from the record taken before the upgrade.
 
 
 **Frontend tests** (`frontend/src/**/*.test.ts(x)`, Vitest with jsdom) mock `fetch` and cover:

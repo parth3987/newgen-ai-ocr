@@ -222,6 +222,19 @@ Handwriting-style fonts Caveat, Indie Flower, Patrick Hand, Shadows Into Light a
 (SIL Open Font License 1.1), fetched by `make fonts` from google/fonts at a pinned commit with
 hashes (`evaluation/fonts.lock.json`). Used only to render the synthetic handwriting corpus.
 
+## Production host requirements (not shipped; Phase 12)
+
+The offline bundle installs no OS packages on the host (ADR-0032). The host provides these
+from the organisation's own approved package mirror, under their distributions' licences:
+- a container engine with Compose v2: Podman (Apache-2.0) with Docker Compose (Apache-2.0),
+  or Docker Engine (Apache-2.0);
+- OpenSSH's `ssh-keygen` (BSD-style), to verify the bundle signature;
+- coreutils, `sed`, `awk`, `find`, `tar` (GPL; used as programs, not linked);
+- optionally `openssl` (Apache-2.0), for `--self-signed-tls` only.
+
+The bundle itself adds no new software. It contains the images, wheels and models already
+listed here and in MODEL_INVENTORY.md, and `ngocrctl` (project code).
+
 ## Development and CI only (not shipped)
 
 pytest, pytest-cov, coverage, httpx, ruff, mypy, bandit, pip-audit, pip-licenses and their

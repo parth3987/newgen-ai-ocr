@@ -419,6 +419,48 @@ Open:
 - removing the dated overrides when the age floor passes them;
 - a real-browser check on the deployed stack.
 
+## Phase 12: Offline installation bundle (**complete**, 2026-10-24)
+
+Defined by the owner on 2026-10-24. The owner's choices: commit Phase 11 first; sign with
+OpenSSH Ed25519; ship no OS packages and check the host instead.
+
+Delivered (ADR-0032):
+- `scripts/build_bundle.py` (`make bundle`) and `make staging`;
+- `deploy/bundle/`: `ngocrctl`, `INSTALL.md`, `site.env.example`, and the smoke and probe
+  scripts;
+- `scripts/rehearse_install.py` and `.sh` (`make rehearse-install`);
+- `make signing-key`;
+- compose secrets via `NGOCR_SECRETS_PATH`;
+- `tests/unit/test_bundle.py`.
+
+| Bundle content | Where |
+|---|---|
+| Fully pinned Python wheels and transitive dependencies | `wheels/`: the 97 locked wheels, each checked against `requirements.lock`, with the minimal OpenCV build in place of PyPI's (hash equal to the image's), plus the application wheel |
+| OS packages or an approved local mirror | Inside the images (listed in `os-packages/`). The host installs nothing; `ngocrctl preflight` checks for the engine, Compose and OpenSSH from the site's mirror |
+| Versioned, checksum-verified model weights | `models/` and `models.lock.json`. Re-hashed inside the image at install |
+| Pinned container images and digests | `images/`: upstream images pulled by digest, the application by build. Each is checked by content ID after loading, and nothing is ever pulled |
+| Configuration templates | `config/`: compose, the images override, nginx, backup and restore, egress, `site.env.example` |
+| Database migrations | `migrations/`; the image runs them, and `release.env` records the schema head |
+| Licence notices and SBOM | `licenses/` and `sbom/` (image and Python, CycloneDX) |
+| Installation and verification scripts | `ngocrctl` (`verify`, `preflight`, `install`, `verify-installed`, …) and `INSTALL.md` |
+| Offline smoke tests | `ngocrctl smoke`: OCR with no network, egress probe, a job over TLS, and `--restart` |
+| Rollback instructions | `INSTALL.md` §"Rollback and recovery"; `ngocrctl rollback`; OPERATIONS_RUNBOOK §"Releases" |
+
+| Acceptance criterion | Evidence | Status |
+|---|---|---|
+| Installation succeeds with outbound internet blocked | The rehearsal installs on a host with only a loopback interface, no DNS and an empty image store (SECURITY_REVIEW.md §9) | Met |
+| Model loading and OCR processing succeed offline | The install's smoke test loads all 11 engine and language models in a `--network none` container and reads an invoice (five fields correct), then a job through the services over TLS | Met |
+| Restarting services does not trigger downloads | `smoke --restart`: every service recreated, the image store unchanged, the models unchanged, no download attempts in the logs, the smoke tests passed again | Met |
+| All artifact hashes match the manifest | `ngocrctl verify`: the signature, all files, no unlisted files or links; images by content ID; models re-hashed in the image. Tampering, re-hashing and wrong-key cases are refused (tests) | Met |
+| Rollback and recovery steps are documented | INSTALL.md and the runbook. Exercised: upgrade with backup, new data, `rollback --restore`, data identical to before the upgrade | Met |
+
+Open:
+- OD-51: the release signing key's custody and rotation. The rehearsal used a throwaway key;
+  the owner creates the release key with `make signing-key`.
+- OD-52: byte-reproducible images.
+- OD-50: the host firewall.
+- The first real bundle needs a clean, committed tree and the owner's key.
+
 ## Next (not yet defined by the owner)
 
 Carried forward from the earlier deployment plan, and from the open decisions:

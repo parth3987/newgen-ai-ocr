@@ -4,6 +4,37 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 12: Offline installation bundle (2026-10-24)
+- **Signed offline bundle** (`make bundle`, `scripts/build_bundle.py`; ADR-0032). It contains:
+  - the application, PostgreSQL, Valkey and nginx images, each with its content ID;
+  - all 97 locked wheels, with the minimal OpenCV in place of PyPI's, plus the application wheel;
+  - the models and their lock;
+  - the migrations, configuration templates, licence notices, both SBOMs and the gate evidence;
+  - `ngocrctl` and its guide.
+  `SHA256SUMS` covers every file and is signed with OpenSSH Ed25519, and so is the deterministic outer tar.
+  The builder refuses to package an image the gates did not pass for: the Trivy, SBOM and offline-test
+  reports must name its content ID. It also checks every wheel against the lock.
+- **Connected staging workflow:** `make staging` runs fetch, verify, lint, types, licences, audits, Gitleaks,
+  tests (JUnit), the image build, Trivy, the SBOMs, the offline test, then the bundle. `make signing-key`
+  creates the release key outside the repository.
+- **Disconnected production workflow:** `ngocrctl`, POSIX sh needing only a container engine with Compose
+  v2, OpenSSH and coreutils. Its commands are `verify`, `preflight`, `install` (images checked by content
+  ID, models re-hashed inside the image, site configuration and secrets generated on the host), `smoke`,
+  `status`, `backup`, `restore`, `rollback`, `verify-installed`, `create-admin` and `prune`. Nothing is
+  ever pulled (`pull_policy: never` and local tags).
+- **Smoke tests:**
+  - every enabled model and an invoice end to end, in a container with no network;
+  - the egress probe;
+  - a job over the TLS ingress with a short-lived token;
+  - `--restart`: the image store unchanged, the models unchanged, no download attempts in the logs.
+- **Upgrade and rollback.** An upgrade takes a backup first and refuses an older schema. Rollback restores
+  the pre-upgrade backup when the schemas differ, then checks the data and runs the smoke tests.
+- **Install rehearsal** (`make rehearse-install`): the production workflow on a simulated host with no
+  network at all, an empty image store and its own cgroups. Unprivileged: no root needed.
+- Compose reads secrets from `NGOCR_SECRETS_PATH` (default `deploy/secrets/`). The offline test shares the
+  smoke test's egress probe and records the image's content ID. `pyproject.toml` now reads the version
+  from the package. Version 0.12.0.
+
 ### Phase 11: Security and open-source compliance (2026-10-24)
 - **Production image** (`deploy/Dockerfile`, `make images`). Ubuntu 24.04 and uv's Python 3.11, pinned by
   digest. Packages from the hash-pinned lock, with no unpinned build tools. The models are verified, and

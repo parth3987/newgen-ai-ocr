@@ -87,8 +87,14 @@ failures.**
   `default-src 'none'` CSP present, and the session cookie is `Secure`.
 - **Processing over TLS, with no network:** sign-in, then an invoice upload. The background
   job ran ingest, preprocessing, OCR, layout and extraction in 18.1 s on the first attempt.
-  It classified the invoice as `gst_invoice`, and the GSTIN, invoice number and grand total
-  equal the ground truth. The Excel export was produced.
+  It classified the invoice as `gst_invoice`, and the invoice number and grand total equal
+  the ground truth. The Excel export was produced.
+- **Correction (2026-10-24, Phase 12).** This section first said the GSTIN was checked too.
+  It was not: the test looked up a field named `gstin_seller`, which does not exist (the
+  field is `seller_gstin`), so it compared two empty values. The check now covers
+  `seller_gstin`, `buyer_gstin`, `invoice_number`, `invoice_date` and `grand_total`. It
+  also refuses to compare a field whose expected value is empty. Re-run on image
+  `245727de6e58`: all five match (§9).
 
 The host nftables template is syntax-checked but not applied here; it needs root on the
 production host (OD-50).
@@ -139,3 +145,71 @@ The drill also found and fixed two defects:
 - **Image build reproducibility:** the OpenCV wheel's hash differs between builds
   (timestamps); its hash is recorded in each image.
 - **The age floor:** remove the dated overrides when it passes them.
+
+## 9. Phase 12: offline bundle and disconnected install (2026-10-24)
+
+The image under test is `localhost/newgen-ocr:0.12.0`, content ID `245727de6e58`. It was
+rebuilt for this phase, and the image-bound gates were run again on it:
+- **Trivy:** 0 fixable HIGH or CRITICAL findings. 49 MEDIUM and 9 LOW have no fix yet, all
+  in Ubuntu packages.
+- **SBOMs:** the image has 268 components, Python 97.
+- **Offline test:** passed. Every probe was blocked, TLS 1.2 and 1.3 were accepted, TLS
+  1.1 and plain HTTP refused. The job succeeded in 20.1 s, and all five checked fields
+  were correct (see the §5 correction).
+
+The other checks:
+- **Tests:** 656 passed, 0 skipped, 90.70% coverage. This includes the bundle tests: gate
+  refusals, the wheel and lock checks, the deterministic tar, `ngocrctl verify` under
+  `dash` (tampered file, unlisted file, re-hashed sums, other signer, links), the egress
+  verdict, the smoke sample's truth, and the offline OCR smoke over 11 models.
+- **Static checks:** lint, mypy (126 files) and Bandit are clean. Bandit has 25 reviewed
+  suppressions, up from 17; the new ones are fixed-argument subprocess calls in the bundle
+  builder, the rehearsal and the offline test.
+- **Audits and licences:** pip-audit and npm audit are clean. The licence checks pass
+  (97 Python packages; 141 npm, 6 shipped).
+- **Gitleaks:** no leaks.
+
+**Bundle.** Built by `scripts/build_bundle.py` from those reports, 2.55 GB:
+- 186 files under a signed `SHA256SUMS`;
+- 4 images, by content ID;
+- 98 wheels: 96 from PyPI, the minimal OpenCV and the application;
+- 46 model files.
+
+The builder refuses an image the reports do not name (tested). It was signed with a
+**throwaway rehearsal key** and built from an uncommitted tree (`--allow-dirty`, recorded in
+the bundle). It is a rehearsal bundle, not a release: the release key is the owner's
+(OD-51).
+
+**Disconnected install rehearsal** (`make rehearse-install`, run 7, passed). The simulated
+host:
+- **Network:** a network namespace with only loopback. There was no other interface, and
+  `pypi.org` did not resolve.
+- **Images:** an empty image store.
+- **Limits:** its own cgroups, so the containers' limits applied.
+- **Engine:** root Podman inside a user namespace.
+- **No systemd:** a loop ran Podman's health checks, which systemd timers do on a real host.
+
+| Step | Result | Seconds |
+|---|---|---|
+| Outer signature, extract, `verify` | Good signature (rehearsal key); all 186 files match | 28 |
+| `install` | Preflight passed. 4 images loaded, each content ID equal to the manifest. Inside the image, the model lock equals the bundle's and 46 of 46 files verify. Configuration and secrets generated, self-signed TLS, migrations, all services healthy. Smoke tests: 11 of 11 models loaded with `--network none`, and the invoice's 5 fields were correct. Egress was blocked from the API and worker, with the database reachable. A new job over TLS succeeded in about 18 s | 360 |
+| `smoke --restart` | Every service recreated. Image store unchanged (4 images), models unchanged, no download attempts in the logs. The smoke tests, including a new job, passed again | 111 |
+| Upgrade to `0.12.0-drill.1` | Backup taken first with the old release's tools. Switch, start, smoke tests passed | 259 |
+| New data after the upgrade | A web user `after-upgrade` was created | 3 |
+| `rollback --restore` | Verified the target release, stopped the services, switched, restored the pre-upgrade backup, started. `ops verify` ok, smoke tests passed | 109 |
+| After rollback | `ops verify` counts and fingerprint **identical** to the record taken before the upgrade. The `after-upgrade` user is gone | 3 |
+
+Both releases used the same image (two bundles named differently). This exercises the
+mechanics of upgrade and rollback, but not a schema change; both schema heads are 0002.
+
+**Defects the rehearsal found, all fixed:**
+- the OCR smoke test read the image's production settings;
+- the smoke tests rendered their invoice at run time, but production images have no fonts.
+  The invoice is now rendered at staging and shipped;
+- installed release files were owner-only, so containers could not read them;
+- `ngocrctl` parsed the backup's output to find it. It now finds the backup on disk;
+- after a failed pre-upgrade backup, the old release was left stopped. It is now
+  restarted, and nothing changes;
+- `grep -qv` gave the wrong exit status in the egress verdict. It is replaced and tested;
+- repeated smoke uploads were de-duplicated and checked an old result. Each upload is now
+  unique, and an old result fails the test.

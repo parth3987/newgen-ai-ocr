@@ -25,7 +25,7 @@ TEST_SERVICES  := if [ -f $(SECRETS)/postgres_password ]; then \
                   export NGOCR_TEST_BROKER_URL="redis://:$$(cat $(SECRETS)/valkey_password)@127.0.0.1:56379/15"; fi;
 REPORTS        := reports
 
-.PHONY: help certs images stack-up stack-down image-scan backup restore offline-test frontend frontend-lock frontend-test frontend-licenses services-secrets services-up services-down venv lock models fonts eval-languages eval-handwriting eval-layout eval-extraction calibrate schemas lint format typecheck test security secrets licenses sbom bench eval check run clean
+.PHONY: help signing-key staging bundle rehearse-install certs images stack-up stack-down image-scan backup restore offline-test frontend frontend-lock frontend-test frontend-licenses services-secrets services-up services-down venv lock models fonts eval-languages eval-handwriting eval-layout eval-extraction calibrate schemas lint format typecheck test security secrets licenses sbom bench eval check run clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -46,18 +46,19 @@ lock: ## Re-resolve and hash-pin requirements*.lock (review the diff!)
 	$(UV_COMPILE) requirements-dev.in -o requirements-dev.lock
 
 format: ## Auto-format code
-	$(BIN)/ruff format src tests scripts
-	$(BIN)/ruff check --fix src tests scripts
+	$(BIN)/ruff format src tests scripts deploy/bundle
+	$(BIN)/ruff check --fix src tests scripts deploy/bundle
 
 lint: ## Ruff format check + lint
-	$(BIN)/ruff format --check src tests scripts
-	$(BIN)/ruff check src tests scripts
+	$(BIN)/ruff format --check src tests scripts deploy/bundle
+	$(BIN)/ruff check src tests scripts deploy/bundle
 
 typecheck: ## mypy (strict)
 	$(BIN)/mypy
 
-test: ## pytest with coverage gate (service-mode tests need `make services-up`)
-	@$(TEST_SERVICES) $(BIN)/pytest --cov
+test: ## pytest with coverage gate (service-mode tests need `make services-up`) -> reports/pytest.xml
+	@mkdir -p $(REPORTS)
+	@$(TEST_SERVICES) $(BIN)/pytest --cov --junitxml=$(REPORTS)/pytest.xml
 
 frontend: ## STAGING (network for npm ci): build the web application into the Python package
 	cd frontend && npm ci --ignore-scripts --no-audit && npm run build
@@ -200,3 +201,27 @@ run: ## Run the API on 127.0.0.1:8000 with console logs
 
 clean: ## Remove caches and build artefacts (not .venv or data/)
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov build src/*.egg-info $(REPORTS)
+
+# ------------------------------------------------------------------ offline bundle (ADR-0032)
+SIGNING_KEY    ?= $(HOME)/.config/newgen-ocr/bundle-signing/id_ed25519
+
+signing-key: ## Create the bundle signing key (Ed25519; asks for a passphrase), outside the repository
+	@if [ -f "$(SIGNING_KEY)" ]; then echo "exists: $(SIGNING_KEY)"; else \
+		mkdir -p -m 700 "$$(dirname "$(SIGNING_KEY)")" && \
+		ssh-keygen -t ed25519 -C newgen-ocr-release -f "$(SIGNING_KEY)"; fi
+	@ssh-keygen -l -f "$(SIGNING_KEY)"
+
+staging: ## STAGING (network): fetch, verify, build, scan, test, then the signed bundle -> dist/
+	$(MAKE) venv models frontend
+	$(MAKE) lint typecheck licenses frontend-licenses security secrets
+	$(MAKE) services-up
+	$(MAKE) test frontend-test
+	$(MAKE) images
+	$(MAKE) image-scan sbom offline-test
+	$(MAKE) bundle
+
+bundle: ## Signed offline bundle of IMAGE from the staging gates' reports -> dist/
+	$(BIN)/python scripts/build_bundle.py --image $(IMAGE) --signing-key "$(SIGNING_KEY)" $(BUNDLE_ARGS)
+
+rehearse-install: ## Install, restart, upgrade and roll back BUNDLE on a simulated host with no network
+	$(BIN)/python scripts/rehearse_install.py $(REHEARSAL_ARGS)

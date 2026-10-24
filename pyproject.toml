@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "newgen-ocr"
-version = "0.1.0"
+# The version lives in src/newgen_ocr/__init__.py (one place; the bundle checks it).
+dynamic = ["version"]
 description = "New Gen AI OCR - Precision Data Extraction (self-hosted, offline, CPU-only)"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
@@ -12,6 +13,9 @@ license = { text = "Proprietary" }
 # Runtime dependencies are declared in requirements.in and pinned (with hashes)
 # in requirements.lock. They are intentionally not duplicated here.
 dependencies = []
+
+[tool.setuptools.dynamic]
+version = { attr = "newgen_ocr.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

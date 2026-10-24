@@ -101,8 +101,43 @@ certificate before it expires; nginx reads it at start.
 - **Never** put credentials in `.env`, compose files or the environment of a shell that
   keeps history.
 
-**Upgrades.** Load the new image, set `NGOCR_IMAGE`, then `make stack-up`. The `migrate`
-service applies migrations before the API and workers start. Take a backup first.
+**Upgrades.** On production hosts, use the signed bundle and `ngocrctl` ("Releases"
+below). In a checkout: load the new image, set `NGOCR_IMAGE`, then `make stack-up`. The
+`migrate` service applies migrations before the API and workers start. Take a backup first.
+
+## Releases: install, upgrade, rollback (ADR-0032)
+
+Production hosts run releases installed from the signed offline bundle
+(OFFLINE_DEPLOYMENT.md; the bundle's `INSTALL.md`). `<prefix>` is `/opt/newgen-ocr`, or
+`NGOCR_PREFIX` for a rootless install. Run every command as `<prefix>/current/ngocrctl …`
+except `install`, which runs from the extracted new bundle.
+
+| Command | What it does |
+|---|---|
+| `verify --signers FILE` | Signature, every hash, nothing unlisted, no links |
+| `preflight` | Engine and Compose versions, Podman socket, disk, memory, CPUs, tools |
+| `install --signers FILE [TLS options]` | Install or upgrade (backup first), start, smoke tests |
+| `status` | Current and previous release, service states |
+| `start`, `stop`, `restart` | The whole stack; `restart` recreates the containers |
+| `smoke [--no-job] [--restart]` | Offline OCR, egress probe and a job over HTTPS. `--restart` first restarts everything and checks that nothing was downloaded |
+| `backup` | Pauses the API and workers, then backs up to `<prefix>/backups/<stamp>` |
+| `restore STAMP` | Restores a backup, then runs `ops verify` |
+| `rollback [--to R] [--restore\|--no-restore]` | Returns to the previous release, restoring the pre-upgrade backup when the schemas differ |
+| `verify-installed` | Re-checks the installed release: signature, hashes, image IDs, models |
+| `create-admin --user NAME` | The first web administrator (asks for the password) |
+| `prune` | Removes releases other than the current and previous ones, with their images |
+
+- **Settings and secrets:** `<prefix>/config/site.env` holds the bind address, port, TLS
+  host name and worker limits. `<prefix>/config/secrets/` holds the passwords and TLS.
+  Both are written on the first install and never overwritten. To replace a certificate,
+  put the new files in `secrets/tls/`, then `restart`.
+- **When an upgrade fails:** `install` prints the rollback command and stops. It does not
+  roll back on its own, because a restore loses data written since the upgrade. Read the
+  output of `status` and the failed smoke test first.
+- **History:** every install, rollback, backup, restore and smoke test is a line in
+  `<prefix>/state/history`.
+- **Smoke documents:** each smoke test with a job leaves one `ngocr-smoke.png` document,
+  owned by `ngocr-smoke`. Retention removes it like any other document.
 
 ## Backup and restore
 
@@ -306,4 +341,5 @@ under `preprocessed/` after a crash can be deleted while the service is idle.
 
 ## Backups and recovery
 
-See "Backup and restore" above.
+See "Backup and restore" and "Releases" above. On an installed host, use
+`ngocrctl backup` and `ngocrctl restore STAMP`, which wrap the same scripts.

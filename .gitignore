@@ -88,3 +88,6 @@ deploy/secrets/
 src/newgen_ocr/webapp/dist/
 frontend/node_modules/
 deploy/backups/
+
+# Offline bundles and the install rehearsal (make bundle, make rehearse-install)
+dist/
