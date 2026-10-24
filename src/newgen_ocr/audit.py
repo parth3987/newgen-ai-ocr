@@ -23,6 +23,7 @@ actor_var: ContextVar[str | None] = ContextVar("actor", default=None)
 class AuditEvent(StrEnum):
     DOCUMENT_ACCEPTED = "document.accepted"
     DOCUMENT_REJECTED = "document.rejected"
+    DOCUMENT_DELETED = "document.deleted"
     PREPROCESSING_COMPLETED = "preprocessing.completed"
     PREPROCESSING_FAILED = "preprocessing.failed"
     OCR_COMPLETED = "ocr.completed"

@@ -4,6 +4,40 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 11: Security and open-source compliance (2026-10-24)
+- **Production image** (`deploy/Dockerfile`, `make images`). Ubuntu 24.04 and uv's Python 3.11, pinned by
+  digest. Packages from the hash-pinned lock, with no unpinned build tools. The models are verified, and
+  unlisted files are refused. It runs as uid 10001 with a read-only `/opt`, in production mode, with
+  temporary uploads on the data volume.
+- **Minimal OpenCV built from source** (ADR-0015, ADR-0031). The PyPI source archive is checked against
+  its published SHA-256 and built with core, imgproc, imgcodecs and photo only. It has no FFmpeg, video
+  I/O or OpenSSL, links statically, and is packaged as `opencv-python-headless 4.14.0.94+ngocr.minimal`.
+  It has its own build stage.
+- **Compose stack** (`make stack-up`): migrations, API, workers and an nginx TLS ingress.
+  - Internal-only networks for everything except the ingress.
+  - On every service: `no-new-privileges`, all capabilities dropped, read-only roots, tmpfs mounts,
+    memory, CPU and process limits, rotated logs.
+  - Secrets come from files (`NGOCR_SECRETS_DIR`).
+- **TLS ingress:** TLS 1.2 and 1.3, Mozilla-intermediate ciphers, HSTS, no session tickets, body and time
+  limits, and per-address request, connection and sign-in limits. Logs carry no query strings. `make
+  certs` creates a development CA.
+- **Egress:** `make offline-test` runs the production stack, checks that every outbound probe fails from
+  the API and workers, and completes a job over TLS. A host nftables template is provided.
+- **Backups:** `make backup` and `make restore` (pg_dump plus the document volume, SHA-256 sums).
+  `python -m newgen_ocr.ops verify` checks the counts, a fingerprint, the review history chain and the
+  document files.
+- **Retention:** `python -m newgen_ocr.ops retention` (dry run by default; `NGOCR_RETENTION_*`).
+  Deletions are audited as `document.deleted`.
+- **Scanning:** `make image-scan` runs Trivy on the image (vulnerabilities, secrets, licences) and
+  produces a CycloneDX image SBOM. Gitleaks now has a config and is pinned by digest.
+- **Docs:** THREAT_MODEL.md (STRIDE by element), SECURITY_REVIEW.md (scan and manual review results),
+  and an individual terms review of every model at its pinned revision.
+- **Security overrides (ADR-0007, approved by the owner):**
+  - nginx 1.30.6 (5 CVEs);
+  - filelock 4.2.2 and setuptools 84.2.0, for new advisories. None is reachable here; both upgraded
+    anyway.
+- Version 0.11.0.
+
 ### Phase 10: React frontend (2026-10-23)
 - **Web application** at `/app` (React 19, TypeScript, Vite). It covers:
   - sign-in;

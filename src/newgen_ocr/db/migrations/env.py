@@ -5,7 +5,7 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-from newgen_ocr.config import Settings
+from newgen_ocr.config import get_settings
 from newgen_ocr.db.models import Base
 
 config = context.config
@@ -15,7 +15,7 @@ def _url() -> str:
     explicit = config.attributes.get("url")
     if explicit:
         return str(explicit)
-    url = Settings().database_url
+    url = get_settings().database_url
     if url is None:
         raise RuntimeError("NGOCR_DATABASE_URL is not set")
     return url.get_secret_value()

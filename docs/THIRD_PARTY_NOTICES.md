@@ -33,7 +33,7 @@ Update this file whenever a lock file changes.
 | cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause |
 | et_xmlfile | 2.0.0 | MIT (dependency of openpyxl, ADR-0026) |
 | fastapi | 0.143.0 | MIT |
-| filelock | 4.0.12 | MIT |
+| filelock | 4.2.2 | MIT |
 | frozenlist | 1.8.0 | Apache-2.0 |
 | fsspec | 2026.9.0 | BSD-3-Clause |
 | future | 1.0.0 | MIT License |
@@ -87,7 +87,7 @@ Update this file whenever a lock file changes.
 | requests | 2.34.2 | Apache Software License |
 | ruamel.yaml | 0.19.1 | MIT License |
 | safetensors | 0.8.0 | Apache Software License |
-| setuptools | 84.0.0 | MIT |
+| setuptools | 84.2.0 | MIT |
 | shapely | 2.2.0 | BSD-3-Clause |
 | six | 1.17.0 | MIT License |
 | sqlalchemy | 2.1.4 | MIT |
@@ -155,6 +155,7 @@ redistribution. This is one reason production uses a minimal source build withou
 | python-bidi 0.6.11 | LGPL-3.0 | Hard requirement of PaddleX's text recogniser | Unmodified, imported as a separate, replaceable package | Ship licence text; allow replacement (satisfied: plain wheel) |
 | certifi 2026.10.19 | MPL-2.0 | CA bundle for requests/httpx (dependencies of the Paddle stack) | Unmodified; unused at runtime (no egress) | Ship licence text; source of MPL files available upstream |
 | tqdm 4.70.1 | MPL-2.0 AND MIT | Progress bars in hub SDKs | Unmodified; unused | As above |
+| autocommand 2.2.2 (reviewed 2026-10-24; found by the Trivy licence scan) | LGPL-3.0 | Vendored, unmodified, inside setuptools (`setuptools/_vendor`); setuptools ships because ModelScope, an unused hub SDK, requires it | Not imported by this application | Licence text included in its dist-info; replaceable together with setuptools |
 | psycopg 3.3.6 (reviewed 2026-10-23) | LGPL-3.0-only | PostgreSQL driver for service mode (ADR-0029) | Unmodified, imported as a separate, replaceable package; links the OS libpq (PostgreSQL licence) at run time | Ship licence text; allow replacement (satisfied: plain wheel). `psycopg-binary`, which bundles libpq and other libraries, is not used |
 
 `crc32c` (LGPL-2.0+), an optional dependency of the Baidu cloud SDK, is **removed** by a uv
@@ -191,6 +192,24 @@ They are MIT, ISC, Apache-2.0, BSD or MIT-0, except:
 - `mdn-data` (CC0-1.0).
 `scripts/check_npm_licenses.py` enforces this list. The full list with versions and hashes
 is `frontend/package-lock.json`.
+
+### Container images and their system packages (reviewed 2026-10-24)
+
+| Component | Version / pin | Licence | Role |
+|---|---|---|---|
+| Ubuntu base image | `noble-20260917` by digest | Ubuntu packages under their own licences (mostly GPL/LGPL/MIT/BSD); used unmodified as the OS | Base of the API and worker image |
+| `tesseract-ocr` (apt) | Ubuntu 24.04 package | Apache-2.0 | OCR binary (run as a separate process) |
+| `libpq5` (apt) | Ubuntu 24.04 package | PostgreSQL Licence | Loaded by psycopg |
+| `libgomp1` (apt) | Ubuntu 24.04 package | GPL-3.0 with the GCC Runtime Library Exception | OpenMP runtime for Paddle (the exception allows use by any program) |
+| CPython 3.11 (python-build-standalone, via uv) | Recorded in the image SBOM | PSF-2.0, plus bundled libraries under their licences | Interpreter |
+| OpenCV 4.14.0 minimal build (`opencv-python-headless 4.14.0.94+ngocr.minimal`) | Built from the PyPI source archive, SHA-256 `4afa2ea1…` | Apache-2.0; the bundled libpng (libpng licence), libjpeg-turbo (IJG and BSD-3-Clause) and zlib (zlib licence) are permissive | Replaces the PyPI wheel; contains no FFmpeg, OpenSSL or GPL code |
+| nginx | `1.30.6-alpine` by digest | BSD-2-Clause | TLS ingress, a separate container |
+| PostgreSQL / Valkey images | By digest (above) | PostgreSQL Licence / BSD-3-Clause | Separate containers |
+| uv | 0.12.24 by digest | Apache-2.0 or MIT | Build stage only; not in the runtime image |
+| Trivy | 0.75.0 by digest | Apache-2.0 | Staging scanner only; not shipped |
+
+The full component list of the image, with versions, is the CycloneDX SBOM produced by
+`make image-scan` (`reports/sbom-image.cdx.json`).
 
 ### OCR system binary
 

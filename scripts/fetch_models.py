@@ -2,6 +2,10 @@
 
 Usage:
     python scripts/fetch_models.py [--models-dir models] [--only PREFIX] [--record]
+    python scripts/fetch_models.py --verify [--models-dir models]   # no network
+
+``--verify`` (used by the container build) checks every locked file's SHA-256 and fails on
+any file in the models directory that the lock does not list: only approved models ship.
 
 Network use is confined to this staging script; the application never downloads models.
 Every file is fetched from the exact revision pinned in models.lock.json and checked
@@ -145,13 +149,43 @@ def fetch(lock_path: Path, models_dir: Path, only: str | None, record: bool) -> 
     return 1 if failures else 0
 
 
+def verify(lock_path: Path, models_dir: Path) -> int:
+    """Offline: every locked file present with its hash, and nothing else in the tree."""
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    expected: dict[Path, str] = {}
+    for model in lock["models"]:
+        for filename, digest in model["files"].items():
+            expected[models_dir / model["dir"] / Path(filename).name] = digest
+    failures = 0
+    for path, digest in sorted(expected.items()):
+        if not path.is_file():
+            _out(f"MISSING   {path.relative_to(models_dir)}")
+            failures += 1
+        elif digest is None or _sha256(path.read_bytes()) != digest:
+            _out(f"MISMATCH  {path.relative_to(models_dir)}")
+            failures += 1
+    for path in sorted(p for p in models_dir.rglob("*") if p.is_file()):
+        if path not in expected:
+            _out(f"UNLISTED  {path.relative_to(models_dir)} (not in {lock_path.name})")
+            failures += 1
+    _out(
+        f"{len(expected) - failures} of {len(expected)} model files verified"
+        if not failures
+        else f"{failures} problem(s)"
+    )
+    return 1 if failures else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lock", type=Path, default=LOCK)
     parser.add_argument("--models-dir", type=Path, default=ROOT / "models")
     parser.add_argument("--only", help="only model ids starting with this prefix")
     parser.add_argument("--record", action="store_true", help="record hashes for new models")
+    parser.add_argument("--verify", action="store_true", help="verify only, no network")
     args = parser.parse_args()
+    if args.verify:
+        return verify(args.lock, args.models_dir)
     return fetch(args.lock, args.models_dir, args.only, args.record)
 
 

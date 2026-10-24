@@ -48,7 +48,7 @@ FastAPI to 0.143.0 and Starlette to 1.7.0. **Security exception:** when the age-
 has known vulnerabilities fixed only in a newer release, that package gets a dated
 `--exclude-newer-package` override in `SECURITY_OVERRIDES` (Makefile). Current overrides:
 `pillow` (12.3.0 has about 25 CVEs, including TIFF decoder out-of-bounds reads, fixed in
-13.0.0) and `certifi` (dev only). Remove each override once the floor passes it.
+13.0.0) and `certifi` (dev only). Remove each override once the floor passes it. Added 2026-10-24 (owner-approved): `filelock` 4.2.2 (CVE-2026-112940/112913/112907) and `setuptools` 84.2.0 (GHSA-xmj3-9gf7-h52w). None is reachable in this deployment (Windows-only, or the unused `ReadWriteLock`), but `pip-audit --strict` is kept clean. The nginx 1.30.6 image is admitted the same way (ADR-0031). Also owner-approved 2026-10-24: npm `undici` 8.12.2 (GHSA-xjj6-f33q-929c and two others), dev-only (pulled in by jsdom for tests), pinned with an `overrides` entry in `frontend/package.json`; remove the entry once 8.12.2 is 14 days old (2026-10-29).
 `pip-audit` runs with `--disable-pip` against the fully hashed locks, so it queries vulnerabilities without downloading packages.
 
 ### ADR-0008: `opentelemetry-api` dependency; FastAPI telemetry disabled (2026-10-22)
@@ -498,25 +498,101 @@ which now redirects there. The owner's choices:
   - admin: overview, audit log, users.
   Admin and search need service mode, like jobs.
 
+### ADR-0031: Hardened containers, TLS ingress, egress isolation, backups and retention (2026-10-24)
+Phase 11. The owner's choices: commit Phase 10 first; nginx for TLS; Trivy for image
+scanning; the minimal OpenCV built from source in the image.
+- **Image** (`deploy/Dockerfile`). One image serves the API, the workers and one-shot
+  commands. It is built at staging; the result needs no network.
+  - **Base:** `ubuntu:noble-20260917` by digest (closes OD-1). Python 3.11 comes from uv
+  0.12.24 (pinned by digest), which checks the download against its own manifest.
+  - **Python packages:** installed with `--require-hashes` from `requirements.lock`. The
+    app itself is installed without build isolation, using the locked setuptools, so
+    nothing unpinned is fetched.
+  - **Models:** `models/` is verified with `fetch_models.py --verify`, which also refuses
+    any file the lock does not list. So only approved models ship.
+  - **Runtime packages:** `tesseract-ocr`, `libpq5` and `libgomp1`, nothing else.
+  - **User and permissions:** the service runs as uid 10001. `/opt` is read-only,
+    `NGOCR_ENVIRONMENT=production`, and temporary uploads go to `/data/tmp` (mode 0700;
+    OD-15).
+- **Minimal OpenCV** (ADR-0015, as implemented).
+  - **Source:** the `opencv-python-headless` 4.14.0.94 source distribution, checked
+    against the SHA-256 that PyPI publishes.
+  - **Modules:** core, imgproc, imgcodecs and photo. imgcodecs is added to ADR-0015's list:
+    our code and PaddleX decode and encode images with it. PNG and JPEG are built from
+    OpenCV's bundled sources.
+  - **Left out:** videoio and FFmpeg, GUI, OpenSSL, IPP, OpenCL, TIFF, WebP and OpenEXR.
+    Nothing is downloaded during the CMake build.
+  - **Linking and packaging:** static, packaged as `opencv-python-headless
+    4.14.0.94+ngocr.minimal`. That satisfies the lock's `==4.14.0.94` and replaces the PyPI
+    wheel in the image. Its SHA-256 is recorded in the image (`/opt/ngocr/opencv-wheel.sha256`).
+  - **Check:** the production guard runs at build time and at every start.
+- **Compose** (`deploy/compose.yaml`, profile `app`): migrations, then the API, the workers
+  and the nginx ingress.
+  - **Networks:** `backend` (database, queue, API, workers) and `edge` (ingress to API) are
+    internal. Only the ingress joins a routable network, to publish HTTPS.
+  - **Hardening on every service:** `no-new-privileges`, all capabilities dropped (a few
+    added back for the PostgreSQL entrypoint, and SETUID and SETGID for nginx's workers),
+    read-only root filesystems with small tmpfs mounts, and limits on memory, CPU and
+    processes.
+  - **Secrets** are files under `deploy/secrets/` (directory 0700), mounted only into the
+    services that need them. The application reads them through `NGOCR_SECRETS_DIR`, so no
+    credential is an environment variable.
+- **TLS** (`deploy/nginx/nginx.conf`).
+  - **Protocols and ciphers:** TLS 1.2 and 1.3 with Mozilla-intermediate ciphers, session
+    tickets off, HSTS.
+  - **Limits:** a 51 MiB body cap (the API enforces the exact limit), timeouts, and
+    per-address limits on requests, connections and sign-in. This closes the proxy part of
+    OD-36.
+  - **Headers:** `X-Forwarded-For` is replaced, never appended.
+  - **Logs:** the path only, never the query string.
+  - **Certificates:** production uses certificates from the organisation's CA.
+    `make certs` creates a local CA for development and the offline test.
+- **nginx 1.30.6 is admitted under ADR-0007's security override.** It was released
+  2026-10-14, 10 days before this decision, and fixes five CVEs, among them worker buffer
+  overflows (CVE-2026-15176, CVE-2026-93479). The override lapses when the age floor
+  passes it (2026-10-28); remove the note then.
+- **Egress.**
+  - **Layer 1:** internal container networks, verified by `make offline-test`. It runs
+    the production stack, checks that DNS, TCP, UDP and HTTPS to the internet fail from
+    the API and workers, and processes a document end to end over TLS.
+  - **Layer 2:** a host nftables template (`deploy/egress/nftables-egress.nft`; the
+    syntax is checked, the operator applies it).
+- **Backups.** `make backup` writes `pg_dump` plus a tarball of the document volume, a
+  manifest and SHA-256 sums. `make restore` checks the sums, replaces both, then runs
+  `python -m newgen_ocr.ops verify`. That compares counts and a fingerprint, re-checks the
+  review history chain, and checks that every document's files are present. Closes OD-42
+  (scheduling and off-site copies are the operator's).
+- **Retention.** `python -m newgen_ocr.ops retention` is a dry run by default.
+  - **Deletes:** documents older than `NGOCR_RETENTION_DOCUMENT_DAYS` (default unset: kept),
+    with their files and rows; events of finished jobs older than 90 days; ended sessions;
+    and stale quarantine files.
+  - **Keeps:** documents with an active job or an open review item. Audit events and the
+    review history are append-only and never deleted (OD-48).
+  - **Audit:** each deletion is recorded (`document.deleted`).
+- **Scanning.** `make image-scan` runs Trivy 0.75.0 (by digest) on the saved image: OS
+  packages, Python packages, secrets and licences. It writes JSON reports and a CycloneDX
+  image SBOM, and fails on fixable HIGH or CRITICAL findings. It also scans the repository
+  for misconfiguration. Trivy downloads its database at staging only. Closes OD-5.
+
 ## Open decisions (defaults in force until decided)
 
 | ID | Question | Default assumption |
 |---|---|---|
-| OD-1 | Production container base image | `ubuntu:24.04` + uv-provisioned Python 3.11, for parity with the target OS |
+| OD-1 | Production container base image | **Decided (ADR-0031):** `ubuntu:noble-20260917` by digest, with uv-provisioned Python 3.11 |
 | OD-2 | Queue broker | **Decided (ADR-0029):** Valkey 8 (BSD-3-Clause) with Celery |
 | OD-3 | Handwriting model | None selected. Candidates are license-reviewed in the handwriting phase; **stop and report** if none is clearly licensed |
 | OD-4 | PaddleOCR coverage for te/hi/ta/kn/mr on CPU | **Measured on the synthetic corpus (Phase 4)**: see ACCURACY_EVALUATION.md. Real-scan accuracy remains unmeasured |
-| OD-5 | Container/image vulnerability scanner | Trivy (Apache-2.0); Grype as an alternative. Needs approval before adoption (Phase 9) |
+| OD-5 | Container/image vulnerability scanner | **Decided (ADR-0031):** Trivy 0.75.0 (`make image-scan`), database fetched at staging |
 | OD-6 | API authentication | **Done for the API (ADR-0029):** every endpoint except health and the static review page needs a bearer token; tokens are in PostgreSQL in service mode, with a `submitter` role for integrations. Still open: a session login for the full review application (Phase 10, with OD-35); OIDC optional later |
 | OD-7 | Test-client transport | Starlette warns that `httpx` is deprecated in favour of `httpx2`. Migration is held for approval (new dependency) |
 | OD-8 | GitHub Actions pinning | Pinned to major tags today; pin to commit SHAs before the first protected-branch merge |
 | OD-9 | Untracked empty `requirements.txt` | Left untouched; superseded by `requirements.in`/`.lock`. Propose deleting it |
 | OD-10 | Git remote is a placeholder (`YOUR_USERNAME`) | No pushes or commits until the owner authorizes them and sets the remote |
 | OD-11 | Dev host is Ubuntu 26.04, target is 24.04 | CI runs on `ubuntu-24.04`; containers will use a 24.04 base (OD-1) |
-| OD-12 | Parser isolation | PDFium and Pillow parse untrusted files in the API process. Default: move parsing into the worker in Phase 9 with resource limits (memory, CPU time, no network); evaluate a separate sandboxed subprocess per document |
+| OD-12 | Parser isolation | **Partly done:** parsing runs in worker processes (Phase 9) inside hardened containers (non-root, no capabilities, read-only root, memory and process limits, no network; ADR-0031). Still open: a separate sandbox process per document (e.g. seccomp-restricted subprocess) |
 | OD-13 | Retention of rejected uploads | Deleted immediately; only the audit event (sha256, size, code) remains. Alternative: a quarantine hold for security review |
 | OD-14 | Rotated PDF pages | `rotation` is recorded. Text bounding boxes are in unrotated page space with a top-left origin, while rendered images follow PDFium's display orientation. Layout (Phase 6) works in OCR-image coordinates, so it is unaffected; reconcile together with OD-25 |
-| OD-15 | Upload spooling | Starlette spools multipart files over 1 MiB to `TMPDIR` before the handler runs (size-capped by the body limit). Default: set `TMPDIR` to a directory on the protected data volume in deployment |
+| OD-15 | Upload spooling | **Done (ADR-0031):** in the image `TMPDIR` is `/data/tmp` on the document volume, created owner-only (0700); nginx streams bodies (`proxy_request_buffering off`) |
 | OD-16 | Storage growth and retention | About 4–6 MB per scanned page at 300 DPI (about 40–60 GB/day at 10k pages/day). Default: none yet. Propose a retention period per tree (derived artefacts can be regenerated from originals) before Phase 11 |
 | OD-17 | Per-language engine choice | **Decided 2026-10-22 on measurement:** Kannada → Tesseract-primary (PaddleOCR CER 0.388 vs Tesseract 0.013). Others PaddleOCR-primary (see OD-21) |
 | OD-18 | Page-level 180° orientation for Indic scripts | **Resolved 2026-10-23 (ADR-0023):** Tesseract OSD orientation is applied before OCR for every script; measured correct on all upright/180° corpus pages. Evaluate PaddleOCR's document-orientation classifier (`PP-LCNet_x1_0_doc_ori`) or Tesseract OSD |
@@ -543,9 +619,12 @@ which now redirects there. The owner's choices:
 | OD-39 | Name fields accepting identifiers | On 3 heavily degraded PAN cards the PAN number was extracted as the holder's name (confidence 0.999; caught by the page-quality gate). Candidate: name/text normalisers reject values that match an identifier format (PAN, GSTIN, Aadhaar) |
 | OD-40 | PostgreSQL image version | `postgres:17.10-alpine` pinned by digest. 17.11 was released fewer than 14 days ago, so ADR-0007 holds it back. Default: move to the newest 17.x once it is 14 days old, after checking the 17.11 release notes for security fixes that affect us |
 | OD-41 | Database and broker TLS | Both are reached only on the internal container network (or loopback in development), without TLS. Default: keep for a single host; require TLS (`sslmode=verify-full`, `rediss://`) if they ever run on another host |
-| OD-42 | Backups and retention | Nothing is backed up or expired automatically yet. Default: nightly `pg_dump` plus a data-volume snapshot, and retention rules for documents and job events, with OD-16 (Phase 11) |
+| OD-42 | Backups and retention | **Done (ADR-0031):** `make backup` / `make restore` with SHA-256 sums and `ops verify`; `ops retention`. The operator schedules backups, keeps them on encrypted off-host media, and drills restores (OPERATIONS_RUNBOOK.md) |
 | OD-43 | Valkey persistence | Append-only file on, so queued messages survive a restart (the reaper re-sends any that are lost). Default: keep; `appendfsync everysec` (the default) can lose about one second of messages, which the reaper recovers |
 | OD-44 | libpq on hosts | Service mode needs the OS libpq (`sudo apt install libpq5` on Ubuntu; in the image in Phase 11). Without it, psycopg cannot load and the service-mode tests are skipped |
 | OD-45 | Multi-factor sign-in and single sign-on | Passwords only. Options: TOTP as a second factor (stdlib HMAC, no dependency), or OIDC with the organisation's identity provider |
 | OD-46 | Web application in local mode | Sign-in, admin and search need the database, so the web application needs service mode (`make services-up`); local mode keeps the API for scripts and tests |
 | OD-47 | Browser testing | The application is unit-tested (Vitest with jsdom) and its API flows end to end against the live stack, but no automated real-browser test runs (no browser automation dependency was added). Default: manual check per release; consider Playwright (Apache-2.0) in CI |
+| OD-48 | Personal data in the review history | The history keeps extracted, previous and corrected values (masked for Aadhaar) and is append-only, so retention cannot delete it with the document. Options: keep (audit value) with a documented retention basis; store only value hashes in future events; or export and purge per records policy by a superuser |
+| OD-49 | Backup encryption | Backups are plain `pg_dump` and tar files in a 0700 directory. Default: store on encrypted media; option: encrypt with `age` or GPG at backup time (new tool, needs approval) |
+| OD-50 | Host egress rules | The nftables template is syntax-checked but not applied or tested here (needs root on the production host). Container egress is blocked and tested regardless (layer 1) |

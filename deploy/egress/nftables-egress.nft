@@ -1,0 +1,41 @@
+#!/usr/sbin/nft -f
+# Production host egress policy (ADR-0031): a TEMPLATE for the operator to adapt and load as
+# root (`nft -f`, or include from /etc/nftables.conf). It is not applied by this repository.
+#
+# Layer 1 (always on, tested by `make offline-test`): the API, workers, database and queue
+# sit on internal container networks with no route outside the host.
+# Layer 2 (this file): the host itself, and the ingress container, may not open outbound
+# connections either. Inbound HTTPS and administration stay possible.
+#
+# Edit the three sets below, then: nft -c -f nftables-egress.nft   (check)
+#                                    nft -f nftables-egress.nft      (apply)
+
+table inet ngocr_egress {
+    # Who may reach the host (HTTPS clients, administrators).
+    set clients_v4 { type ipv4_addr; flags interval; elements = { 10.0.0.0/8 } }
+    # Internal services the host itself must reach, e.g. NTP, an internal DNS resolver, the
+    # backup target or a log collector. Nothing on the internet.
+    set internal_v4 { type ipv4_addr; flags interval; elements = { 10.0.0.53, 10.0.0.123 } }
+    # Container bridge networks (podman: `podman network inspect`; docker: `docker network
+    # inspect`). Traffic between containers on one host is allowed.
+    set containers_v4 { type ipv4_addr; flags interval; elements = { 10.88.0.0/16, 10.89.0.0/16 } }
+
+    chain output {
+        type filter hook output priority filter; policy drop;
+        oifname "lo" accept
+        ct state established,related accept
+        ip daddr @internal_v4 accept
+        ip daddr @containers_v4 accept
+        ip daddr @clients_v4 tcp sport { 22, 443, 8443 } accept
+        counter log prefix "ngocr-egress-drop " level warn drop
+    }
+
+    chain forward {
+        # Containers: replies to inbound connections, and traffic between containers only.
+        type filter hook forward priority filter; policy drop;
+        ct state established,related accept
+        ip saddr @containers_v4 ip daddr @containers_v4 accept
+        ip saddr @clients_v4 ip daddr @containers_v4 tcp dport 8443 accept
+        counter log prefix "ngocr-forward-drop " level warn drop
+    }
+}

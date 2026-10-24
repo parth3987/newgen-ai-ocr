@@ -1,7 +1,7 @@
 # Offline Deployment
 
-Status: **planned (Phase 11)**. Only the Python dependency pinning described in §2 exists
-today.
+Status: **implemented (Phase 11, ADR-0031)**. The bundle is the container images plus
+`deploy/`. The offline test (§4) runs the production stack with no egress.
 
 ## 1. Model
 
@@ -42,7 +42,45 @@ and by an `internal: true` Docker network for the api/worker/db/broker services.
 - Production: no Node and no npm. The API serves the built files under `/app`, and the
   Content-Security-Policy allows only this origin.
 
-## 4. Verification [planned P11]
+## 3b. Images and the bundle [implemented P11]
 
-An automated test on the production host attempts outbound connections (DNS, HTTPS) and must
-observe them being blocked, then runs an end-to-end OCR job successfully.
+At staging (connected):
+
+```bash
+make venv models frontend        # pinned Python packages, verified models, web application
+make images                      # localhost/newgen-ocr:<version>: Python, OpenCV and models inside
+make image-scan                  # Trivy report and image SBOM -> reports/
+podman save -o newgen-ocr-<version>.tar localhost/newgen-ocr:<version>
+podman pull <the nginx, postgres and valkey images by the digests in deploy/compose.yaml>
+podman save -o base-images.tar <those three references>
+```
+
+Transfer the two archives, `deploy/` (without `secrets/` or `backups/`), `reports/` and
+the release notes. On the production host (no network):
+
+```bash
+podman load -i newgen-ocr-<version>.tar && podman load -i base-images.tar
+make services-secrets            # or place the organisation's certificate in deploy/secrets/tls/
+NGOCR_IMAGE=localhost/newgen-ocr:<version> make stack-up
+podman compose -f deploy/compose.yaml --profile app exec api \
+    python -m newgen_ocr.auth user-create --user admin --role admin
+```
+
+Then apply the host egress rules (`deploy/egress/nftables-egress.nft`, edited for the
+site) and run the verification below.
+
+## 4. Verification [implemented P11]
+
+`make offline-test` runs the production stack as its own compose project. It then:
+1. From inside the API and worker containers, tries DNS lookups (pypi.org,
+   huggingface.co), TCP to 1.1.1.1:443 and 8.8.8.8:53, UDP DNS to 8.8.8.8, and HTTPS to
+   Hugging Face and Paddle's model store. Every attempt must fail, while the database
+   (the control) stays reachable.
+2. Checks TLS: 1.2 and 1.3 are accepted, 1.1 and plain HTTP refused.
+3. Signs in over HTTPS with the local CA, uploads an invoice, waits for the background
+   job, and compares the extracted GSTIN, invoice number and total with the truth. It also
+   checks the Excel export, the `Secure` cookie, HSTS and the CSP.
+4. Confirms the API runs in production mode with the minimal OpenCV (no FFmpeg).
+
+The report goes to `reports/offline-test.json` (results in SECURITY_REVIEW.md). The host
+firewall template adds a second layer for the host itself and the ingress (OD-50).

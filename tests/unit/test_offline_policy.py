@@ -46,6 +46,10 @@ FORBIDDEN_IMPORTS = {
     "http.client",
 }
 
+# Reviewed exceptions: modules that may import a client because they only ever call the
+# local host. Each is checked below to name a loopback address only.
+LOOPBACK_ONLY = {"healthcheck.py": "urllib.request"}
+
 
 def test_no_forbidden_distributions_installed() -> None:
     installed = {(d.metadata["Name"] or "").lower() for d in metadata.distributions()}
@@ -66,9 +70,20 @@ def test_application_source_imports_no_network_clients() -> None:
             else:
                 continue
             for name in names:
+                if LOOPBACK_ONLY.get(str(path.relative_to(SRC))) == name:
+                    continue
                 if name in FORBIDDEN_IMPORTS or name.split(".")[0] in FORBIDDEN_IMPORTS:
                     offenders.append(f"{path.relative_to(SRC)}: {name}")
     assert offenders == []
+
+
+def test_loopback_exceptions_call_only_the_local_host() -> None:
+    import re
+
+    for module in LOOPBACK_ONLY:
+        source = (SRC / module).read_text(encoding="utf-8")
+        urls = re.findall(r"https?://[^\s\"']+", source)
+        assert urls and all(u.startswith("http://127.0.0.1:") for u in urls), (module, urls)
 
 
 def test_cdn_backed_docs_ui_is_disabled(client: TestClient) -> None:

@@ -368,17 +368,62 @@ Open:
 - the web application needs service mode (OD-46);
 - no automated real-browser test (OD-47).
 
-## Phase 11: Offline deployment and hardening
+## Phase 11: Security and open-source compliance (**complete**, 2026-10-24)
 
-Planned work:
-- application container images (API and worker) with the **minimal source-built OpenCV
-  wheel** (ADR-0015), `tesseract-ocr`, the OS libpq and the verified `models/`, joining
-  the internal network of `deploy/compose.yaml`; a container scan (OD-5); readiness that
-  also covers the OCR and layout models;
-- offline bundle (wheels, images, models, SBOM, hashes);
-- host-level egress blocking, verified by test;
-- backups and a restore drill;
-- storage retention (OD-16);
-- runbook;
+Defined by the owner on 2026-10-24. The owner's choices:
+- commit Phase 10 first;
+- nginx for TLS;
+- Trivy for image scanning;
+- the minimal OpenCV built from source in the image;
+- security overrides for nginx 1.30.6, filelock, setuptools and (dev-only) undici.
+
+Delivered (ADR-0031):
+- `deploy/Dockerfile`: a hardened image with the minimal OpenCV and verified models;
+- `deploy/compose.yaml`: the full stack on internal networks, behind an nginx TLS ingress;
+- `deploy/nginx/nginx.conf`, `deploy/egress/nftables-egress.nft` and `deploy/ops/` (backup,
+  restore);
+- `newgen_ocr/ops.py` (`verify`, `retention`) and `newgen_ocr/healthcheck.py`;
+- `scripts/offline_test.py` and `scripts/build_opencv_wheel.py`;
+- `fetch_models.py --verify`;
+- Makefile targets: `images`, `image-scan`, `stack-up`, `certs`, `backup`, `restore`,
+  `offline-test`;
+- THREAT_MODEL.md and SECURITY_REVIEW.md.
+
+| Task | Where |
+|---|---|
+| Threat model | THREAT_MODEL.md (data flows, trust boundaries, STRIDE per element) |
+| Authentication and authorisation | Phases 8 to 10 (tokens, sessions, roles, ownership, CSRF), reviewed in SECURITY_REVIEW.md §7 |
+| Upload limits and safe temporary files | nginx body and time limits, streaming; the API's limits; `TMPDIR` on the volume (0700, tested) |
+| TLS at the internal ingress | nginx: TLS 1.2/1.3, HSTS, per-address limits (the offline test checks the protocols) |
+| Secrets and file permissions | Secret files (`NGOCR_SECRETS_DIR`, tested), a 0700 directory, read-only `/opt`, non-root users |
+| Static analysis and dependency scans | Bandit, Ruff, mypy, pip-audit, npm audit, Trivy (image and repository) |
+| Leaked-secret scan | Gitleaks on history and working tree (`.gitleaks.toml`) |
+| SBOM | Python (CycloneDX 1.4, 97 components) and image (CycloneDX 1.7, 268 components) |
+| Software and model licence inventory | THIRD_PARTY_NOTICES.md and MODEL_INVENTORY.md; licence checks for Python and npm; Trivy licence scan |
+| Model weights and dataset terms, individually | MODEL_INVENTORY.md "Individual terms review" (20 models at their pinned revisions) |
+| Container hardening and resource limits | compose: non-root (API and workers hold no capabilities), read-only roots, `no-new-privileges`, memory, CPU and process limits (inspected on the live stack) |
+| Audit logs, retention, backup and restore tests | Audit events including `document.deleted`; `ops retention` (tested); the backup and restore drill (SECURITY_REVIEW.md §6) |
+| Production egress restrictions | Internal container networks (tested); host nftables template |
+| Telemetry and external calls disabled | Tests from earlier phases plus the offline test; CSP in the browser |
+
+| Acceptance criterion | Evidence | Status |
+|---|---|---|
+| Security scans and manual reviews are documented | SECURITY_REVIEW.md: every scan with its result, the 17 reviewed suppressions, and the licence, model and manual reviews | Met |
+| No unapproved dependency or model is shipped | Hash-pinned locks installed with `--require-hashes`, without build isolation; the unused base pip and setuptools removed; models verified, with unlisted files refused (tested); licence checks pass; Trivy finds no fixable HIGH or CRITICAL | Met |
+| No external AI endpoint is required | No AI or telemetry SDKs (test); rules and templates only (ADR-0026); the offline test processes a document with every outbound route blocked | Met |
+| Production processing passes an offline network test | `make offline-test` passed: every probe blocked, production mode, the TLS checks, and a job that extracted correct values in 18.1 s (SECURITY_REVIEW.md §5) | Met |
+| Backup and restore procedures are verified | A full-loss drill: the restored state is identical (counts, fingerprint, history chain); triggers, sign-in and results work afterwards (SECURITY_REVIEW.md §6) | Met |
+
+Open:
+- OD-12, OD-41, OD-45, and OD-47 to OD-50;
+- removing the dated overrides when the age floor passes them;
+- a real-browser check on the deployed stack.
+
+## Next (not yet defined by the owner)
+
+Carried forward from the earlier deployment plan, and from the open decisions:
+- readiness that also checks the OCR and layout models;
 - throughput benchmarks on the reference CPU server (OD-19);
-- real-document and real-handwriting evaluation sets (OD-21, OD-23, OD-28, OD-33).
+- real-document and real-handwriting evaluation sets (OD-21, OD-23, OD-28, OD-33);
+- MFA or SSO (OD-45);
+- a per-document parser sandbox (OD-12).

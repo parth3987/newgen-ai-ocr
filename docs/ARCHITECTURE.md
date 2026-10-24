@@ -159,6 +159,8 @@ src/newgen_ocr/
     crops.py           evidence crops and page previews (Aadhaar redaction)
     service.py         queue, claim/correct/approve/reject, patterns
     ui/                minimal review page (static HTML/CSS/JS, strict CSP)
+deploy/                Dockerfile, compose stack, nginx TLS ingress, egress
+                       template, backup/restore scripts (ADR-0031)        [implemented P11]
 frontend/              React + TypeScript web application (built into
                        newgen_ocr/webapp/dist, served at /app)            [implemented P10]
 ```
@@ -180,6 +182,6 @@ Dependency rule: `api` and `worker` may depend on domain modules; domain modules
 | Audit | JSONL lifecycle events without content or filenames (ADR-0014) [implemented] |
 | Untrusted parsing | PDFium (serialised by a lock) and Pillow restricted to the detected format; in-process for now (OD-12) [implemented] |
 | Model integrity | `models.lock.json` pins revisions and SHA-256 per file; verified before first use; never downloaded at runtime (ADR-0021) [implemented] |
-| OpenCV supply | PyPI wheel in development; minimal source build required in production, enforced at startup (ADR-0015) [guard implemented, build planned P8] |
+| OpenCV supply | PyPI wheel in development; in the image a minimal source build (core, imgproc, imgcodecs, photo; no FFmpeg or OpenSSL), checked by the production guard at build and start (ADR-0015, ADR-0031) [implemented P11] |
 | Source preservation | Source page images are immutable; preprocessing outputs live per profile beside them (ADR-0018) [implemented] |
-| Egress control | Host firewall / isolated container network. See OFFLINE_DEPLOYMENT.md [planned P10]. FastAPI telemetry disabled in code (ADR-0008) [implemented] |
+| Egress control | API, workers, database and queue on internal-only container networks (`make offline-test` proves no outbound route); host nftables template; FastAPI telemetry disabled (ADR-0008) [implemented P11] |

@@ -7,8 +7,10 @@ page images and OCR/layout/extraction JSON stay on the shared data volume.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 
 from newgen_ocr.audit import AuditLog
 from newgen_ocr.auth.db import DbTokenStore
@@ -87,7 +89,16 @@ def build_engines(settings: Settings) -> dict[str, OcrEngine]:
     }
 
 
+def prepare_temp_dir() -> None:
+    """Uploads spool to ``TMPDIR`` (OD-15). In the image it is on the data volume, so files
+    being received never land on a shared or unencrypted tmpfs; create it, owner-only."""
+    tmp = os.environ.get("TMPDIR")
+    if tmp:
+        Path(tmp).mkdir(mode=0o700, parents=True, exist_ok=True)
+
+
 def build_services(settings: Settings, pool_size: int = 5) -> Services:
+    prepare_temp_dir()
     calibration = load_calibration(settings.review_calibration_file)
     if (
         settings.review_auto_accept

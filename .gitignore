@@ -87,3 +87,4 @@ deploy/secrets/
 # Web application build output and dependencies (make frontend)
 src/newgen_ocr/webapp/dist/
 frontend/node_modules/
+deploy/backups/

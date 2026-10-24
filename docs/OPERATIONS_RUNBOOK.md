@@ -1,8 +1,8 @@
 # Operations Runbook
 
-Status: development stage. The API and the worker run from the virtual environment;
-PostgreSQL and Valkey run from `deploy/compose.yaml`. Application containers, backups and
-recovery come in Phase 11.
+Status: the production deployment is the container stack in `deploy/compose.yaml`
+(ADR-0031; OFFLINE_DEPLOYMENT.md has the bundle). Development can still run the API and
+workers from the virtual environment against `make services-up`.
 
 ## Start / stop (development)
 
@@ -73,6 +73,78 @@ browsers will not send them over plain HTTP.
 /api/v1/jobs/{id}/events` shows what happened. Fix the cause, then `POST
 /api/v1/jobs/{id}/retry`: the job resumes after its completed stages.
 
+## Production stack (ADR-0031)
+
+| Command | What it does |
+|---|---|
+| `make stack-up` | Migrations, then the API, workers and TLS ingress (`https://<NGOCR_HTTPS_BIND>:<NGOCR_HTTPS_PORT>`, default `127.0.0.1:8443`) |
+| `make stack-down` | Stop everything; volumes are kept |
+| `podman compose -f deploy/compose.yaml --profile app logs -f api worker` | Logs (JSON, rotated at 20 MB × 5 per container) |
+| `... --profile app up -d --scale worker=3` | More workers. Each needs about 2 GiB; set `NGOCR_WORKER_MEMORY` and `NGOCR_WORKER_CPUS` |
+
+**Bind address.** Set `NGOCR_HTTPS_BIND` to the internal interface clients use. Only the
+ingress publishes a port; the database and queue never do.
+
+**Certificates.** Put the organisation's certificate (full chain, PEM) in
+`deploy/secrets/tls/server.crt` and its key in `server.key` (mode 0400). Then restart the
+ingress: `podman compose -f deploy/compose.yaml --profile app restart ingress`. `make
+certs` makes a development CA and certificate only (`ca.crt`, valid 90 days). Renew the
+certificate before it expires; nginx reads it at start.
+
+**Secrets.**
+- **What they are:** `deploy/secrets/` (directory 0700) holds the database and Valkey
+  passwords, the connection URLs built from them, and the TLS key. They are mounted only
+  into the services that need them, at `/run/secrets`.
+- **Rotation:** stop the stack, change the password in PostgreSQL (`ALTER ROLE ngocr
+  PASSWORD …`) and in the file, run `make services-secrets` to rebuild the URLs, then start
+  the stack. Valkey takes its password at start.
+- **Never** put credentials in `.env`, compose files or the environment of a shell that
+  keeps history.
+
+**Upgrades.** Load the new image, set `NGOCR_IMAGE`, then `make stack-up`. The `migrate`
+service applies migrations before the API and workers start. Take a backup first.
+
+## Backup and restore
+
+```bash
+make backup                       # -> deploy/backups/<UTC timestamp>/ (db.dump, data.tar.gz, MANIFEST, SHA256SUMS)
+make restore BACKUP=<timestamp>   # stops API/workers/ingress, checks sums, replaces both, verifies
+podman compose -f deploy/compose.yaml --profile app exec api python -m newgen_ocr.ops verify
+```
+
+- **Run nightly**, for example from a systemd timer or cron, and copy each backup to
+  encrypted off-host storage (OD-49). The database and the document volume are backed up
+  together because the database names files on the volume.
+- **Restore drill** at least quarterly, and after every upgrade of PostgreSQL. Restore
+  into a test host. `ops verify` must report `"ok": true`, a valid review history, and the
+  same counts and fingerprint as the report taken when the backup was made. (Phase 11's
+  drill is in SECURITY_REVIEW.md.)
+- **Live backups:** `make backup` also works with the stack running. A document committed
+  during the copy may be in one half only; `ops verify` reports it after a restore.
+
+## Retention
+
+```bash
+podman compose -f deploy/compose.yaml --profile app exec api python -m newgen_ocr.ops retention          # dry run
+podman compose -f deploy/compose.yaml --profile app exec api python -m newgen_ocr.ops retention --apply
+```
+
+- **Settings:** set `NGOCR_RETENTION_DOCUMENT_DAYS` to your records policy (unset keeps
+  documents) and `NGOCR_RETENTION_JOB_EVENT_DAYS` (default 90). Schedule the job daily.
+- **What it keeps:** documents with an active job or an open review item, until they are
+  done. Audit events and the review history are never deleted (append-only; OD-48).
+- **Audit:** each deleted document gets a `document.deleted` audit event.
+
+## Egress and network checks
+
+- **Containers:** the API, workers, database and queue have no route out (internal
+  networks). `make offline-test` proves it on a test host.
+- **Host:** adapt `deploy/egress/nftables-egress.nft` to the site (client and admin
+  subnets, internal DNS and NTP, container subnets), check it with
+  `nft -c -f deploy/egress/nftables-egress.nft`, then load it with `nft -f`. Afterwards
+  `curl -m 5 https://pypi.org` on the host must fail, and the drop counters
+  (`nft list table inet ngocr_egress`) show what was blocked.
+
 ## Configuration
 
 All variables use the `NGOCR_` prefix. See `.env.example`.
@@ -125,6 +197,9 @@ All variables use the `NGOCR_` prefix. See `.env.example`.
 | `NGOCR_SESSION_MAX_HOURS` | 12 | Web sessions end this long after sign-in in any case |
 | `NGOCR_SESSION_COOKIE_SECURE` | auto | `Secure` cookies; on in staging/production (production refuses `false`), off in development/test |
 | `NGOCR_LOGIN_MAX_FAILURES` / `NGOCR_LOGIN_LOCKOUT_MINUTES` | 5 / 15 | Wrong passwords before a lockout, and its length |
+| `NGOCR_SECRETS_DIR` | unset (`/run/secrets` in the image) | Directory of secret files named after settings (`NGOCR_DATABASE_URL`, `NGOCR_BROKER_URL`) |
+| `NGOCR_RETENTION_DOCUMENT_DAYS` | unset (keep) | Documents older than this are deleted by `ops retention --apply` |
+| `NGOCR_RETENTION_JOB_EVENT_DAYS` | 90 | Events of finished jobs older than this are deleted |
 | `NGOCR_REVIEW_CALIBRATION_FILE` | unset | Calibration from `scripts/calibrate_review.py`; without one no value is verified |
 | `NGOCR_REVIEW_AUTO_ACCEPT` | `false` | Accept fully verified documents without a person (needs a calibration file) |
 | `NGOCR_REVIEW_ALLOW_SYNTHETIC_CALIBRATION` | `false` | Let production auto-accept with a synthetic calibration (not recommended) |
@@ -231,6 +306,4 @@ under `preprocessed/` after a crash can be deleted while the service is idle.
 
 ## Backups and recovery
 
-Not automated yet (OD-42). Until then, in service mode back up PostgreSQL (`pg_dump`) and the
-data volume together: the database names files on the volume. Restores are drilled in
-Phase 11.
+See "Backup and restore" above.

@@ -1,17 +1,55 @@
-# PostgreSQL and Valkey for service mode (ADR-0029).
+# New Gen AI OCR on one host (ADR-0029, ADR-0031).
 #
-# Neither publishes a port: both are reachable only on the internal "backend" network,
-# which has no route outside the host (internal: true). The API and workers join that
-# network (their containers arrive in Phase 11). For local development and tests,
-# deploy/compose.dev.yaml publishes them on 127.0.0.1 only.
+#   make services-up      PostgreSQL and Valkey only (development and tests)
+#   make stack-up         + migrations, API, workers and the TLS ingress (profile "app")
+#   make backup / make restore BACKUP=…   (profile "ops")
 #
-# Passwords are read from files under deploy/secrets/ (git-ignored; `make services-secrets`
-# creates random ones). Images are pinned by digest; see docs/DECISIONS.md OD-40.
+# Networks:
+#   backend  internal: PostgreSQL, Valkey, API, workers. No route outside the host.
+#   edge     internal: ingress <-> API.
+#   ingress  the only routable network, used only by the ingress to publish HTTPS.
+# So the API, workers, database and queue cannot reach anything outside the host, whatever
+# the code does (the offline test checks this). The host firewall restricts the ingress too
+# (deploy/egress/).
+#
+# Hardening on every service: no new privileges, all capabilities dropped (a few added back
+# for the database's entrypoint), read-only root filesystems with a small tmpfs, memory, CPU
+# and process limits. Secrets are files under deploy/secrets/ (`make services-secrets`,
+# `make certs`), mounted only where needed. Images are pinned by digest (OD-40).
 name: newgen-ocr
+
+x-hardening: &hardening
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  read_only: true
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+x-app: &app
+  <<: *hardening
+  image: ${NGOCR_IMAGE:-localhost/newgen-ocr:dev}
+  user: "10001:10001"
+  environment:
+    NGOCR_ENVIRONMENT: ${NGOCR_ENVIRONMENT:-production}
+    NGOCR_LOG_LEVEL: ${NGOCR_LOG_LEVEL:-INFO}
+    NGOCR_WORKER_CONCURRENCY: ${NGOCR_WORKER_CONCURRENCY:-1}
+    NGOCR_OCR_CPU_THREADS: ${NGOCR_OCR_CPU_THREADS:-2}
+  secrets:
+    - { source: database_url, target: NGOCR_DATABASE_URL }
+    - { source: broker_url, target: NGOCR_BROKER_URL }
+  volumes:
+    - documents:/data
+  tmpfs:
+    - /tmp:size=256m,mode=1777
 
 services:
   postgres:
+    <<: *hardening
     image: docker.io/library/postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    # The entrypoint prepares the data directory as root, then runs as postgres.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     environment:
       POSTGRES_USER: ngocr
       POSTGRES_DB: ngocr
@@ -21,19 +59,27 @@ services:
     secrets: [postgres_password]
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    tmpfs:
+      - /tmp:size=64m
+      - /var/run/postgresql:size=1m
     networks: [backend]
+    shm_size: 128m
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 200
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ngocr -d ngocr"]
       interval: 5s
       timeout: 3s
       retries: 20
-    restart: unless-stopped
 
   valkey:
+    <<: *hardening
     image: docker.io/valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
-    # The password goes into a config file, not the command line (visible in `ps`).
-    # Append-only persistence keeps queued messages across a restart; the reaper
-    # re-dispatches anything lost anyway (the database is the source of truth).
+    user: valkey
+    # The password goes into a config file on the tmpfs, not the command line (visible in
+    # `ps`). Append-only persistence keeps queued messages across a restart; the reaper
+    # re-sends anything lost anyway (the database is the source of truth).
     entrypoint:
       - sh
       - -c
@@ -44,24 +90,137 @@ services:
     secrets: [valkey_password]
     volumes:
       - valkey-data:/data
+    tmpfs:
+      - /tmp:size=1m,mode=1777
     networks: [backend]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 64
     healthcheck:
       test: ["CMD-SHELL", "valkey-cli -a \"$$(cat /run/secrets/valkey_password)\" --no-auth-warning ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
-    restart: unless-stopped
+
+  migrate:
+    <<: *app
+    profiles: [app]
+    restart: "no"
+    command: ["python", "-m", "newgen_ocr.db", "upgrade"]
+    networks: [backend]
+    mem_limit: 512m
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    <<: *app
+    profiles: [app]
+    networks: [backend, edge]
+    mem_limit: 3g
+    cpus: 2.0
+    pids_limit: 256
+    ulimits:
+      nofile: { soft: 4096, hard: 4096 }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      valkey: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-m", "newgen_ocr.healthcheck"]
+      interval: 10s
+      timeout: 6s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    <<: *app
+    profiles: [app]
+    command: ["python", "-m", "newgen_ocr.worker"]
+    networks: [backend]
+    # OCR models load per process: about 2 GiB per worker process.
+    mem_limit: ${NGOCR_WORKER_MEMORY:-6g}
+    cpus: ${NGOCR_WORKER_CPUS:-2.0}
+    pids_limit: 512
+    stop_grace_period: 60s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      valkey: { condition: service_healthy }
+
+  ingress:
+    <<: *hardening
+    profiles: [app]
+    image: docker.io/library/nginx:1.30.6-alpine@sha256:47928bf67eb62a1863cb08d9ecb52d3e704304ba614eaee17884204677702951
+    # The master process reads the key and prepares its temporary directories, then the
+    # workers run as the unprivileged nginx user.
+    cap_add: [CHOWN, SETGID, SETUID]
+    secrets: [tls_cert, tls_key]
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    tmpfs:
+      - /tmp:size=64m
+    networks: [edge, ingress]
+    ports:
+      - "${NGOCR_HTTPS_BIND:-127.0.0.1}:${NGOCR_HTTPS_PORT:-8443}:8443"
+    mem_limit: 256m
+    cpus: 1.0
+    pids_limit: 64
+    depends_on:
+      api: { condition: service_healthy }
+
+  backup:
+    profiles: [ops]
+    image: docker.io/library/postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    restart: "no"
+    # Read-only access to the service user's files on the volume (it is mounted read-only).
+    cap_add: [DAC_READ_SEARCH]
+    entrypoint: ["sh", "/ops/backup.sh"]
+    secrets: [postgres_password]
+    volumes:
+      - ./ops:/ops:ro
+      - documents:/data:ro
+      - ${NGOCR_BACKUP_DIR:-./backups}:/backups
+    networks: [backend]
+
+  restore:
+    profiles: [ops]
+    image: docker.io/library/postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    restart: "no"
+    entrypoint: ["sh", "/ops/restore.sh"]
+    environment:
+      BACKUP: ${BACKUP:-}
+    secrets: [postgres_password]
+    volumes:
+      - ./ops:/ops:ro
+      - documents:/data
+      - ${NGOCR_BACKUP_DIR:-./backups}:/backups:ro
+    networks: [backend]
 
 networks:
   backend:
     internal: true
+  edge:
+    internal: true
+  ingress: {}
 
 volumes:
   postgres-data:
   valkey-data:
+  documents:
 
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
   valkey_password:
     file: ./secrets/valkey_password
+  database_url:
+    file: ./secrets/database_url
+  broker_url:
+    file: ./secrets/broker_url
+  tls_cert:
+    file: ./secrets/tls/server.crt
+  tls_key:
+    file: ./secrets/tls/server.key

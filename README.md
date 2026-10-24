@@ -12,6 +12,15 @@ scanned PDFs and handwriting recognition.
 
 ## Status
 
+Phase 11 (security and open-source compliance) is complete. The production deployment is a
+hardened container stack behind a TLS ingress, with:
+- a minimal source-built OpenCV and hash-verified models;
+- no outbound network route (proved by `make offline-test`);
+- tested backup and restore;
+- retention rules;
+- Trivy scans and SBOMs.
+
+See [THREAT_MODEL](docs/THREAT_MODEL.md) and [SECURITY_REVIEW](docs/SECURITY_REVIEW.md).
 Phase 10 (React frontend) is complete. The web application at `/app` covers sign-in, batch
 upload with live progress, documents and results with search, page previews and OCR text,
 extracted fields and tables, source-linked review and correction, exports, and admin
@@ -76,7 +85,9 @@ curl -H "$AUTH" -o out.xlsx \
 
 Service mode (PostgreSQL, Valkey and workers; uploads queue the whole pipeline) and the web
 application (`make frontend`, then `http://127.0.0.1:8000/app/`): see "Service mode" and
-"Web application" in [OPERATIONS_RUNBOOK](docs/OPERATIONS_RUNBOOK.md).
+"Web application" in [OPERATIONS_RUNBOOK](docs/OPERATIONS_RUNBOOK.md). Production containers
+(`make images`, `make stack-up`, then `https://127.0.0.1:8443/app/`): see "Production stack"
+there, and [OFFLINE_DEPLOYMENT](docs/OFFLINE_DEPLOYMENT.md).
 
 Configuration: see [.env.example](.env.example).
 
@@ -88,7 +99,9 @@ Configuration: see [.env.example](.env.example).
 | [IMPLEMENTATION_PLAN](docs/IMPLEMENTATION_PLAN.md) | Phases, gates, status |
 | [DECISIONS](docs/DECISIONS.md) | ADRs and open decisions |
 | [API_SPECIFICATION](docs/API_SPECIFICATION.md) | Endpoints and error codes |
-| [SECURITY](docs/SECURITY.md) | Threat model and controls |
+| [SECURITY](docs/SECURITY.md) | Controls and their status |
+| [THREAT_MODEL](docs/THREAT_MODEL.md) | Data flows, trust boundaries, STRIDE per element |
+| [SECURITY_REVIEW](docs/SECURITY_REVIEW.md) | Scan results and manual reviews (Phase 11) |
 | [OFFLINE_DEPLOYMENT](docs/OFFLINE_DEPLOYMENT.md) | Staging, bundle and disconnected install |
 | [TESTING](docs/TESTING.md) | Test strategy and commands |
 | [ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md) | Metrics and dataset rules |

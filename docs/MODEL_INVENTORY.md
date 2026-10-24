@@ -67,6 +67,28 @@ Total on disk: about 450 MB.
   the probe) and the RT-DETR-L cell detectors (124 MB each).
 - The Tesseract **binary** is the OS package `tesseract-ocr` 5.5.0 (Apache-2.0).
 
+## Individual terms review (2026-10-24, Phase 11)
+
+Every shipped model was re-checked at its pinned revision against its publisher's terms.
+Only these models ship: the image build runs `fetch_models.py --verify`, which fails on any
+file the lock does not list.
+
+| Models | Terms checked | Finding |
+|---|---|---|
+| The 13 PaddlePaddle models above | The Hugging Face model card at the pinned revision: licence field and tag, gating, declared datasets, the card text | All Apache-2.0, none gated. No dataset declared, and no non-commercial or research-only wording. PP-DocLayout_plus-L and PP-DocLayout-M say they were "trained on a self-built dataset" of papers, slides, magazines, reports and similar documents |
+| The 7 Tesseract models (`tessdata_best`) | `LICENSE` and `README.md` at the pinned commit | All data Apache-2.0. Training data is not described in the repository; the Tesseract documentation describes training on rendered text |
+
+What this means:
+- **Weights.** Apache-2.0 allows commercial use, modification and redistribution. It needs
+  the licence and any NOTICE kept: THIRD_PARTY_NOTICES.md, and the image keeps the files
+  as published.
+- **Training data.** It is not disclosed for any model, so the data's own terms cannot be
+  checked. This is accepted on the publishers' Apache-2.0 grants, and recorded as a known
+  limitation (OD-3 covers handwriting models we might add). No model was trained by this
+  project, and no production data is used for training.
+- **Evaluation fonts.** The OFL fonts above are evaluation-only and are not in the image:
+  `.dockerignore` excludes `evaluation/`.
+
 ## Evaluation-only assets (never shipped)
 
 Handwriting-style fonts for the synthetic handwriting proxy (`make fonts`), SIL Open Font

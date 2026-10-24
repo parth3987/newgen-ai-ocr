@@ -6,6 +6,7 @@ local ``.env`` file in development). Secrets must never have defaults here.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -157,6 +158,11 @@ class Settings(BaseSettings):
     login_max_failures: int = Field(default=5, ge=1, le=100)
     login_lockout_minutes: int = Field(default=15, ge=1, le=1440)
 
+    # Retention (ADR-0031; `python -m newgen_ocr.ops retention`). Documents: unset keeps them
+    # until deleted by policy; set it to the period your records policy requires.
+    retention_document_days: int | None = Field(default=None, ge=1)
+    retention_job_event_days: int = Field(default=90, ge=1)
+
     @property
     def cookie_secure(self) -> bool:
         if self.session_cookie_secure is not None:
@@ -212,5 +218,13 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Process-wide settings, loaded once. Tests should pass explicit Settings instead."""
+    """Process-wide settings, loaded once. Tests should pass explicit Settings instead.
+
+    ``NGOCR_SECRETS_DIR`` (``/run/secrets`` in the image) names a directory of secret files,
+    one per setting (``NGOCR_DATABASE_URL``, ``NGOCR_BROKER_URL``), so credentials never
+    need to be environment variables. Environment variables still take precedence.
+    """
+    secrets_dir = os.environ.get("NGOCR_SECRETS_DIR")
+    if secrets_dir and Path(secrets_dir).is_dir():
+        return Settings(_secrets_dir=secrets_dir)
     return Settings()

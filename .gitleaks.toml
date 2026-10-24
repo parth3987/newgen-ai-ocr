@@ -1,0 +1,19 @@
+# Gitleaks (make secrets): the default rules, plus paths that are never committed and hold
+# generated or third-party content. deploy/secrets/ is git-ignored and holds this host's
+# generated passwords and development TLS keys by design; the history scan still covers
+# every committed file.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated local secrets and third-party trees (not in git)"
+paths = [
+  '''(^|/)deploy/secrets/''',
+  '''(^|/)deploy/backups/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)frontend/node_modules/''',
+  '''(^|/)models/''',
+  '''(^|/)data/''',
+  '''(^|/)reports/''',
+  '''(^|/)src/newgen_ocr/webapp/dist/''',
+]

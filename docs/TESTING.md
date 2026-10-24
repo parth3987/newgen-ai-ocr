@@ -26,7 +26,19 @@ make services-down
 make frontend-test  # frontend: tsc type check, Vitest unit tests, npm licence check
 make frontend    # STAGING (network for npm ci): build the web application
 make check       # lint + typecheck + services-up + test + frontend-test + security + licenses
+make images      # STAGING: build the production image (minimal OpenCV, models inside)
+make image-scan  # STAGING: Trivy on the image and repository, image SBOM -> reports/
+make offline-test  # production stack with no egress: network probes + a job over TLS
+make backup && make restore BACKUP=<timestamp>   # backup/restore drill with verification
 ```
+
+**Release checks** (Phase 11, run per release and recorded in SECURITY_REVIEW.md):
+- `make image-scan` fails on fixable HIGH or CRITICAL vulnerabilities in the image.
+- `make offline-test` writes `reports/offline-test.json`. It fails if any outbound probe
+  succeeds, if the database control fails, if TLS 1.1 or plain HTTP is accepted, if the job
+  fails or extracts wrong values, or if production does not run the minimal OpenCV.
+- The restore drill: `ops verify` before and after must match, and report `"ok": true`.
+
 
 **Frontend tests** (`frontend/src/**/*.test.ts(x)`, Vitest with jsdom) mock `fetch` and cover:
 - the API client (CSRF only on changes, error messages with references, sign-out on `401`);

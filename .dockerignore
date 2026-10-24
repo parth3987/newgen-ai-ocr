@@ -1,0 +1,13 @@
+# Build context for deploy/Dockerfile: only what the image needs.
+*
+!requirements.lock
+!pyproject.toml
+!README.md
+!src
+!scripts/build_opencv_wheel.py
+!scripts/fetch_models.py
+!deploy/opencv-build.lock
+!models
+!models.lock.json
+**/__pycache__
+**/*.pyc
