@@ -4,6 +4,11 @@ Status: **synthetic baseline measured (Phases 4–5, 2026-10-22/23). No real-doc
 measurements exist yet.** This project makes no accuracy claim (in particular no universal "99%") beyond
 what is measured below, under the stated conditions.
 
+**Phase 13:** the release evaluation (held-out cohorts kept apart from these tuning sets, with
+targets and gates) is in [RELEASE_READINESS.md](RELEASE_READINESS.md). The corpora below
+are now registered as **tuning** cohorts. Their figures describe development, not final
+accuracy.
+
 ## Metrics
 
 | Level | Metric |

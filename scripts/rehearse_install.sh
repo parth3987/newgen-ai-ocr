@@ -96,6 +96,9 @@ echo "install took $(( $(date +%s) - start )) s"; done_ install $rc
 step restart_no_downloads
 "$W/opt/current/ngocrctl" smoke --restart; done_ restart_no_downloads $?
 
+step benchmark
+"$W/opt/current/ngocrctl" benchmark --documents 16 --clients 2 && data benchmark "$(ls "$W"/opt/state/benchmark-*.json | tail -n 1)"; done_ benchmark $?
+
 step before_upgrade
 ops_verify verify-before && data verify_before "$W/verify-before.json"; done_ before_upgrade $?
 

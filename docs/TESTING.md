@@ -33,6 +33,8 @@ make backup && make restore BACKUP=<timestamp>   # backup/restore drill with ver
 make staging     # STAGING (network): every gate above, then the signed bundle
 make bundle      # the signed offline bundle of IMAGE, from the gates' reports -> dist/
 make rehearse-install REHEARSAL_ARGS="--bundle … --upgrade-bundle …"   # production workflow, no network
+make evaluate    # release evaluation: every evaluation cohort -> reports/evaluation/ (about 2 h, CPU)
+make release-gates BENCHMARK=<report.json>   # production approval (exits 1 unless approved)
 ```
 
 **Release checks** (Phase 11, run per release and recorded in SECURITY_REVIEW.md):
@@ -41,6 +43,21 @@ make rehearse-install REHEARSAL_ARGS="--bundle … --upgrade-bundle …"   # pro
   succeeds, if the database control fails, if TLS 1.1 or plain HTTP is accepted, if the job
   fails or extracts wrong values, or if production does not run the minimal OpenCV.
 - The restore drill: `ops verify` before and after must match, and report `"ok": true`.
+
+**Release evaluation** (Phase 13, ADR-0033; RELEASE_READINESS.md):
+- `make evaluate` refuses to run if an evaluation document matches a tuning one, by file
+  or by truth text. `--limit N` makes trial runs, which the gates refuse.
+- `tests/unit/test_release_evaluation.py` covers:
+  - the cohort registry: every required cohort, a reused seed refused;
+  - separation by file and by normalised text;
+  - the refusal of evaluation folders by tuning tools;
+  - the metric definitions: Wilson bounds, nearest-rank percentiles, micro CER and WER,
+    invented values, precision with coverage;
+  - missing-glyph detection, and that every generator writes its truth and is seeded;
+  - the gate logic: provisional targets not blocking until measured, sample minimums,
+    per-language targets, always-binding targets blocking when unmeasured, and
+    performance accepted only from the reference server;
+  - parsing the benchmark's CPU and memory samples.
 
 **Bundle checks** (Phase 12, ADR-0032):
 - `make bundle` refuses unless the Trivy, image-SBOM and offline-test reports name the

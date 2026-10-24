@@ -707,6 +707,117 @@ also check older releases after a rollback.
   timestamps. This is why the bundle identifies images by content ID and binds the gate
   reports to that ID.
 
+### ADR-0033: Release evaluation, cohorts, targets and release gates (2026-10-24)
+Phase 13. The owner's choices:
+- performance is measured by a benchmark kit the owner runs on the CPU server;
+- synthetic cohorts now, real documents later;
+- three 99% targets, provisional until measured on real documents;
+- handwriting is measured but not gated on accuracy.
+
+**Cohorts** (`evaluation/cohorts.json`, `newgen_ocr/evaluation/cohorts.py`). Every
+document set is a cohort with a **role**, a **kind**, its languages, document types,
+conditions and metric families.
+- **Roles.** A `tuning` cohort was used to choose engines, write rules, set preprocessing
+  or fit review thresholds. An `evaluation` cohort is for final measurement only.
+- **Kinds.** `synthetic` cohorts come from a generator with a fixed seed. `real` cohorts
+  are a folder under `evaluation/real/`, with `<id>.truth.json` beside each document.
+- **The tuning cohorts:** the four existing development sets (the OCR corpus, the
+  extraction set, the layout set and the review calibration set, both of its splits).
+- **The evaluation cohorts:**
+  - clean printed text and clean printed documents;
+  - poor scans, of text and of documents;
+  - tables;
+  - one cohort per printed language (6);
+  - mixed language;
+  - handwriting: Latin (experimental), Devanagari (unsupported, a routing check), and
+    Telugu, Tamil and Kannada (real data only; no offline handwriting font exists);
+  - real cohorts for documents, clean printed documents and clean printed text.
+
+**Separation** (the spec's "do not use the same documents for tuning and final
+evaluation"). It works in four ways:
+- **By file and by text.** Every document is identified by its file's SHA-256 and by a
+  hash of its normalised truth text. `scripts/evaluate_release.py` builds the manifests of
+  every tuning cohort and refuses to run if any evaluation document matches one, or if two
+  evaluation cohorts share a file.
+- **By seed.** The registry refuses a generator seed used twice.
+- **At the tuning tools.** `scripts/calibrate_review.py --dataset` refuses any folder
+  holding an evaluation cohort.
+- **In the reports.** Synthetic evaluation cohorts use new seeds, random word sequences
+  rather than the tuning sentences, and fonts tuning never rendered. They do share the
+  generators' templates and vocabulary, which the reports state as each cohort's
+  `independence`. So they test the machinery and catch regressions; only real cohorts are
+  evidence about real documents.
+
+**Metrics** (`newgen_ocr/evaluation/release_metrics.py`, one definition each). Every
+proportion carries its count and a 95% Wilson interval.
+
+| Metric | Definition |
+|---|---|
+| CER and WER | Micro-averaged: total edits over total reference characters or words |
+| Character accuracy | 1 − CER |
+| Field exact match | Fields whose truth has a value, extracted with exactly that value (whitespace and case normalised). Fields with no truth value count separately: correctly missing, or invented |
+| Document exact match | The type is right and every field is right |
+| Table structure | The exact grid (rows, columns, spans), and the mean adjacency F1 |
+| Auto-accept precision | Of the values the review gate verified with the shipped calibration, the share that are correct |
+| Coverage | The share of all values verified |
+| Document auto-accept rate and manual-review rate | Documents with every value verified, and the rest |
+| Per-page latency | p50 and p95 |
+| Pages per minute | Pages over the run's wall time |
+| CPU seconds per page, peak memory | From the process's resource usage |
+
+The service benchmark adds queue delay (`started_at − created_at`), processing time, the
+failure rate, and the containers' CPU and memory.
+
+**Reports** (`reports/evaluation/<cohort>.json` and `summary.json`). Each report has:
+- the dataset size, languages, document types and conditions;
+- the data kind and its independence;
+- the environment (CPU model, cores, memory, OS, version, commit, the model lock's hash,
+  the calibration);
+- slices by language, condition and document type;
+- every document's row.
+
+**Service benchmark** (`ngocrctl benchmark`, `deploy/bundle/benchmark.py` and
+`benchmark_report.py`). It runs from the bundle on the installed host:
+- **Documents:** the bundle's fixed mix of 18, rendered at staging from a seed no cohort
+  uses. Every upload is made unique, so each is a real job.
+- **Load:** it submits N of them through the TLS ingress, C at a time.
+- **Samples:** `<engine> stats` every 5 s for each container's CPU and memory.
+- **Report:** the host's identity (CPU model, cores, memory) is recorded beside the
+  results.
+
+**Targets** (`evaluation/targets.json`). Each is one metric on one cohort, with a
+comparison, a threshold, and a minimum sample where it matters:
+- **Provisional, `when_measured`** (the owner's choice). They are *not measured* until
+  their real cohort has data, and then they must pass:
+  - auto-accept precision ≥ 0.99 on `real-documents`, at least 300 accepted values, with
+    coverage and the manual-review rate always reported beside it;
+  - field exact match ≥ 0.99 on `real-clean-printed-documents`, at least 300 values;
+  - character accuracy ≥ 0.99 on `real-clean-printed-text`, in each language, at least
+    5,000 reference characters each.
+- **Always binding:**
+  - at least 6.95 pages per minute (10,000 pages a day; OD-19, to be confirmed by the
+    owner) and a failure rate of 0, both from a benchmark on the declared
+    `reference_server` only;
+  - every English and Devanagari handwriting page routed to review;
+  - no document failing in the evaluation.
+
+Synthetic counterparts are shown beside each target, never counted for it.
+
+**Release gates** (`make release-gates`, `scripts/release_gates.py`). Production approval
+needs every blocking gate to pass:
+- **Staging evidence** for this image's content ID: the tests, Trivy, the SBOMs and the
+  offline test (Phase 12's checks, reused);
+- **the install rehearsal**;
+- **separation**;
+- **freshness:** the evaluation ran complete, on this commit, from a clean tree;
+- **reporting completeness:** size, languages, document types and conditions, and
+  accuracy with coverage;
+- **every target**, by its binding.
+
+The script writes `reports/release-gates.json` and `.md`, and exits 1 when not approved.
+Until a reference server is declared and benchmarked, the performance gates are *not
+measured*, so approval is withheld, as the spec requires.
+
 ## Open decisions (defaults in force until decided)
 
 | ID | Question | Default assumption |
@@ -763,3 +874,7 @@ also check older releases after a rollback.
 | OD-50 | Host egress rules | The nftables template is syntax-checked but not applied or tested here (needs root on the production host). Container egress is blocked and tested regardless (layer 1) |
 | OD-51 | Release signing key custody | The key is created at staging with a passphrase (`make signing-key`) outside the repository. Its public half and fingerprint reach the site by a separate channel. Open: a hardware token (`ssh-keygen -t ed25519-sk`), a second signer, and a rotation and revocation procedure |
 | OD-52 | Byte-reproducible images | Inputs are pinned, but the image and the OpenCV wheel carry build timestamps, so two builds differ. Images are identified by content ID instead. Open: `SOURCE_DATE_EPOCH` and rewritten timestamps |
+| OD-53 | Reference CPU server | Not yet identified. The performance gates accept only a benchmark from the host declared in `evaluation/targets.json` (`reference_server`). Until then, throughput and latency are measured on the staging laptop and reported as such |
+| OD-54 | Throughput target | 6.95 pages per minute (10,000 pages a day over 24 hours, from OD-19). To be confirmed with the server's sizing and the working hours; a latency (p95) target is not set |
+| OD-55 | Real evaluation documents | None yet. The 99% targets stay *not measured* until `evaluation/real/` has consented documents with ground truth, in the sizes the targets require (evaluation/real/README.md) |
+| OD-56 | Very sparse pages treated as blank | Phase 13 found that a page with five lines of thin handwriting (0.2% ink) was skipped as blank, unread and not routed to review. The intensity-spread test no longer decides alone (fixed). Pages under 0.1% ink, such as a single short line or a signature, are still skipped as blank. Options: route skipped blank pages to review, or a connected-component test that tells strokes from specks. Default: unchanged until decided |

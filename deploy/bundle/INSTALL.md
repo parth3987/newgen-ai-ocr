@@ -96,6 +96,31 @@ This stops and recreates every service, then checks four things:
 - the logs show no download attempts;
 - the smoke tests still pass.
 
+## Benchmark this server
+
+Performance targets count only when measured on the production CPU server itself (ADR-0033):
+
+```sh
+/opt/newgen-ocr/current/ngocrctl benchmark --documents 200 --clients 2
+```
+
+This sends the bundle's 18 benchmark documents, each made unique so every one is a new
+job, through HTTPS with that many clients at once. It samples every container's CPU and
+memory every 5 seconds. It writes `<prefix>/state/benchmark-<stamp>.json` with:
+- pages per minute;
+- p50 and p95 latency;
+- queue delay and processing time;
+- the failure rate;
+- CPU and memory per container;
+- this host's CPU model, cores and memory.
+
+Run it before go-live, when the server has no other load. Try a few `--clients` values
+(1, 2, then the number of worker processes) and keep the best sustained result. Bring the
+report back to staging for `make release-gates BENCHMARK=<file>`.
+
+Like the smoke test, it leaves its documents behind (named `bench-<n>.png`, owned by
+`ngocr-benchmark`).
+
 ## Upgrade
 
 Transfer and verify the new bundle as in step 1, then run its `install`. Before switching,

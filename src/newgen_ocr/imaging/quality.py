@@ -176,10 +176,13 @@ def assess(image: npt.NDArray[np.uint8], dpi: int | None) -> tuple[QualityReport
     spread = float(p_high - p_low)
     ink_fraction = float(a.ink.mean())
     contrast = _contrast(a)
+    # The spread (0.5th to 99.5th percentile) is 0 on any page with under 0.5% ink, so on
+    # its own it would call a sparse page (a short note, one line of handwriting) blank and
+    # skip its OCR. It only confirms blankness where the ink also has no contrast.
     blank = (
-        spread < BLANK_MAX_SPREAD
-        or ink_fraction < BLANK_MAX_INK_FRACTION
+        ink_fraction < BLANK_MAX_INK_FRACTION
         or contrast < BLANK_MAX_CONTRAST
+        or (spread < BLANK_MAX_SPREAD and contrast < POOR_CONTRAST)
     )
 
     flags: list[QualityFlag] = []

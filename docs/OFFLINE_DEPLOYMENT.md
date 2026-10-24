@@ -75,10 +75,10 @@ outside the repository (OD-51). Output in `dist/`:
 | `models/`, `models.lock.json` | Every model file, pinned by SHA-256. The image's copy is checked against these at install |
 | `migrations/` | The database migrations (the image runs them; shipped for review) |
 | `config/` | `compose.yaml`, `compose.images.yaml` (local tags, never pull), `nginx/`, `ops/` (backup and restore), `egress/` (nftables template), `site.env.example` |
-| `ngocrctl`, `INSTALL.md`, `scripts/` | The production tool, its guide, and the smoke and probe scripts that run inside containers |
+| `ngocrctl`, `INSTALL.md`, `scripts/` | The production tool and its guide. The scripts run inside containers: the smoke tests (with their pre-rendered invoice), the egress probe, and the service benchmark with its 18-document set (Phase 13) |
 | `licenses/`, `sbom/` | Licence notices, the model inventory, and the CycloneDX SBOMs (image and Python) |
 | `os-packages/` | The OS packages inside each image, with versions |
-| `evidence/` | The Trivy, offline-test and JUnit reports the gates produced |
+| `evidence/` | The Trivy, offline-test and JUnit reports the gates produced, and the release evaluation's summary (Phase 13) |
 | `docs/` | This guide, the runbook, the security review, the threat model and the changelog |
 | `MANIFEST.json`, `release.env` | Release, version, database schema head, source commit, image IDs, gate summary and signer fingerprint |
 | `SHA256SUMS`, `SHA256SUMS.sig` | The hash of every file above, signed |

@@ -55,17 +55,24 @@ def load_lines(text_dir: Path, language: str) -> list[str]:
     ]
 
 
-def render_page(lines: list[str], font_path: Path, dpi: int) -> Gray:
-    """A4 page, 1-inch margins, ~11 pt text, 1.6x line spacing."""
+def render_page(
+    lines: list[str], font_path: Path, dpi: int, line_fonts: list[Path] | None = None
+) -> Gray:
+    """A4 page, 1-inch margins, ~11 pt text, 1.6x line spacing. ``line_fonts`` gives each
+    line its own font (mixed scripts: a font per script, so no glyph is missing)."""
     if not features.check("raqm"):
         raise RuntimeError("Pillow raqm layout is required to shape Indic scripts correctly")
     width, height = round(8.27 * dpi), round(11.69 * dpi)
     img = Image.new("L", (width, height), 255)
     draw = ImageDraw.Draw(img)
     size = round(dpi * 11 / 72)
-    font = ImageFont.truetype(str(font_path), size, layout_engine=ImageFont.Layout.RAQM)
+    loaded: dict[Path, ImageFont.FreeTypeFont] = {}
     y = dpi
-    for line in lines:
+    for index, line in enumerate(lines):
+        path = line_fonts[index] if line_fonts else font_path
+        if path not in loaded:
+            loaded[path] = ImageFont.truetype(str(path), size, layout_engine=ImageFont.Layout.RAQM)
+        font = loaded[path]
         # Ground truth must be fully visible: keep at least half an inch of right margin.
         if dpi + font.getlength(line) > width - dpi / 2:
             raise ValueError(f"corpus line too long for the page: {line[:30]!r}")

@@ -126,6 +126,7 @@ except `install`, which runs from the extracted new bundle.
 | `verify-installed` | Re-checks the installed release: signature, hashes, image IDs, models |
 | `create-admin --user NAME` | The first web administrator (asks for the password) |
 | `prune` | Removes releases other than the current and previous ones, with their images |
+| `benchmark [--documents N] [--clients C]` | Service benchmark through HTTPS: pages per minute, p50 and p95 latency, queue delay, failures, and each container's CPU and memory, with this host's identity. Writes `<prefix>/state/benchmark-<stamp>.json` for the release gates (ADR-0033) |
 
 - **Settings and secrets:** `<prefix>/config/site.env` holds the bind address, port, TLS
   host name and worker limits. `<prefix>/config/secrets/` holds the passwords and TLS.

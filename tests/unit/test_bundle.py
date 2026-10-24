@@ -271,10 +271,13 @@ def test_production_tools_never_pull_or_fetch() -> None:
         "--network bridge",
     ):
         assert forbidden not in text, forbidden
-    # Every one-off container is offline, except the client-side check of the ingress.
-    runs = re.findall(r"\$ENGINE run [^\n]*(?:\\\n[^\n]*)*", text)
+    # Every one-off container is offline, except the clients of the ingress (the smoke test
+    # and the benchmark), which run only our scripts against the published HTTPS address.
+    runs = re.findall(r"\$ENGINE run (?:[^\n]*\\\n)*[^\n]*", text)  # with continuations
     assert runs and all("--network none" in r or "--network host" in r for r in runs)
-    assert sum("--network host" in r for r in runs) == 1
+    host = [r for r in runs if "--network host" in r]
+    assert len(host) == 2
+    assert all("smoke_api.py" in r or "benchmark.py" in r for r in host)
 
 
 @pytest.mark.parametrize(

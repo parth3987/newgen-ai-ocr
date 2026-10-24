@@ -25,7 +25,7 @@ TEST_SERVICES  := if [ -f $(SECRETS)/postgres_password ]; then \
                   export NGOCR_TEST_BROKER_URL="redis://:$$(cat $(SECRETS)/valkey_password)@127.0.0.1:56379/15"; fi;
 REPORTS        := reports
 
-.PHONY: help signing-key staging bundle rehearse-install certs images stack-up stack-down image-scan backup restore offline-test frontend frontend-lock frontend-test frontend-licenses services-secrets services-up services-down venv lock models fonts eval-languages eval-handwriting eval-layout eval-extraction calibrate schemas lint format typecheck test security secrets licenses sbom bench eval check run clean
+.PHONY: help evaluate release-gates signing-key staging bundle rehearse-install certs images stack-up stack-down image-scan backup restore offline-test frontend frontend-lock frontend-test frontend-licenses services-secrets services-up services-down venv lock models fonts eval-languages eval-handwriting eval-layout eval-extraction calibrate schemas lint format typecheck test security secrets licenses sbom bench eval check run clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -218,6 +218,7 @@ staging: ## STAGING (network): fetch, verify, build, scan, test, then the signed
 	$(MAKE) test frontend-test
 	$(MAKE) images
 	$(MAKE) image-scan sbom offline-test
+	$(MAKE) evaluate
 	$(MAKE) bundle
 
 bundle: ## Signed offline bundle of IMAGE from the staging gates' reports -> dist/
@@ -225,3 +226,10 @@ bundle: ## Signed offline bundle of IMAGE from the staging gates' reports -> dis
 
 rehearse-install: ## Install, restart, upgrade and roll back BUNDLE on a simulated host with no network
 	$(BIN)/python scripts/rehearse_install.py $(REHEARSAL_ARGS)
+
+# ------------------------------------------------------------------ release readiness (ADR-0033)
+evaluate: ## Release evaluation: every evaluation cohort, every metric -> reports/evaluation/
+	$(BIN)/python scripts/evaluate_release.py $(EVALUATE_ARGS)
+
+release-gates: ## Production approval: staging evidence, separation, freshness, targets (BENCHMARK=report.json)
+	$(BIN)/python scripts/release_gates.py --image $(IMAGE) $(foreach b,$(BENCHMARK),--benchmark $(b)) $(GATES_ARGS)

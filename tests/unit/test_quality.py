@@ -102,3 +102,25 @@ def test_assessment_does_not_modify_input() -> None:
     before = page.copy()
     assess(page, 200)
     assert np.array_equal(page, before)
+
+
+def test_sparse_text_is_not_blank() -> None:
+    """A few short lines on a white page (a note, a handwritten line) carry well under 0.5%
+    ink, so the percentile spread is 0. The page must still be read, not skipped as blank
+    (found by the Phase 13 evaluation: a handwriting page lost without review)."""
+    import cv2
+
+    page = blank_page(dpi=300).copy()
+    lines = (
+        "Date receipt listed them are open",
+        "Date of below Keep",
+        "delivery with 0045 copy",
+        "confirms Fill will this This will",
+        "application Fill below identity",
+    )
+    for row, text in enumerate(lines):
+        cv2.putText(page, text, (300, 400 + row * 90), cv2.FONT_HERSHEY_SIMPLEX, 1.4, 0, 2)
+    report, _ = assess(page, 300)
+    assert report.metrics.intensity_spread < 20  # the old rule's trigger
+    assert report.metrics.ink_fraction > 0.001  # above the ink rule, which still applies
+    assert F.BLANK_PAGE not in report.flags

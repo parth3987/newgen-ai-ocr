@@ -91,3 +91,8 @@ deploy/backups/
 
 # Offline bundles and the install rehearsal (make bundle, make rehearse-install)
 dist/
+
+# Release evaluation (ADR-0033): generated cohorts, and real documents (never committed)
+evaluation/cohorts/generated/
+evaluation/real/*
+!evaluation/real/README.md

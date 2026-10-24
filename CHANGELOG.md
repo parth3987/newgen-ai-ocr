@@ -4,6 +4,47 @@ All material changes by phase. Dates are ISO 8601.
 
 ## [Unreleased]
 
+### Phase 13: Accuracy, performance and release readiness (2026-10-24)
+- **Cohorts** (`evaluation/cohorts.json`, ADR-0033). Every document set has a role (tuning or evaluation) and a
+  kind (synthetic or real), and lists its languages, document types and conditions. The four development sets
+  are registered as tuning. There are 15 synthetic evaluation cohorts with fresh seeds, unseen fonts and random
+  compositions:
+  - clean printed text and clean printed documents;
+  - poor scans, of text and of documents;
+  - tables;
+  - each printed language;
+  - mixed language;
+  - English and Devanagari handwriting.
+
+  Real cohorts are folders under `evaluation/real/` (git-ignored, with a documented layout).
+- **Separation of tuning and evaluation:** documents are checked by file hash and by truth-text hash, seeds may
+  not be reused, and `calibrate_review.py` refuses evaluation folders.
+- **Release evaluation** (`make evaluate`, `scripts/evaluate_release.py`). Metrics:
+  - CER and WER (micro);
+  - field and document exact match, and invented values;
+  - table structure;
+  - auto-accept precision with its coverage, and the manual-review rate;
+  - per-page latency (p50 and p95), pages per minute, CPU seconds per page and peak memory;
+  - failures.
+
+  Every proportion has its count and a 95% Wilson interval. Each report states its size, languages, document
+  types, conditions, data kind, independence and environment, with slices by language, condition and type.
+- **Service benchmark** (`ngocrctl benchmark`): unique jobs through the TLS ingress from the bundle's fixed
+  document mix. It reports pages per minute, latency, queue delay, processing time and failure rate, samples
+  container CPU and memory, and records the host's identity.
+- **Targets** (`evaluation/targets.json`), each one metric on one cohort:
+  - provisional 99% targets for auto-accept precision, field exact match (clean printed) and character accuracy
+    (clean printed, per language), binding once real data is measured;
+  - throughput and failure rate, from the reference server only;
+  - handwriting routed to review;
+  - no evaluation failures.
+- **Release gates** (`make release-gates`). Production approval needs:
+  - the staging evidence for this image and the install rehearsal;
+  - separation, freshness and complete reporting;
+  - every target.
+- Synthetic pages fail loudly if a font lacks a glyph, which caught English lines rendered as boxes in
+  mixed-script pages. `render_page` takes a font per line. Version 0.13.0.
+
 ### Phase 12: Offline installation bundle (2026-10-24)
 - **Signed offline bundle** (`make bundle`, `scripts/build_bundle.py`; ADR-0032). It contains:
   - the application, PostgreSQL, Valkey and nginx images, each with its content ID;

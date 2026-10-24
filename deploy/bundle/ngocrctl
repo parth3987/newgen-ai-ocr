@@ -14,6 +14,7 @@
 #   status | start | stop | restart | smoke [--no-job] [--restart]
 #   backup | restore STAMP | rollback [--to RELEASE] [--restore|--no-restore]
 #   create-admin --user NAME | verify-installed | prune
+#   benchmark [--documents N] [--clients C]     service throughput, latency, CPU, memory
 #
 # TLS for the first install: --tls-cert FILE --tls-key FILE --tls-ca FILE (the CA that
 # clients trust), or --self-signed-tls (needs openssl; for trials). --hostname NAME and
@@ -451,6 +452,73 @@ cmd_smoke() {
   fi
 }
 
+# ------------------------------------------------------------------ benchmark
+# Service benchmark (ADR-0033): N new documents through the TLS ingress, C at a time, with
+# the containers' CPU and memory sampled every 5 s. The report, with this host's identity,
+# goes to <prefix>/state/benchmark-<stamp>.json; bring it back for the release gates.
+cmd_benchmark() {
+  _docs=100
+  _clients=2
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --documents) _docs=$2; shift ;;
+      --clients) _clients=$2; shift ;;
+      *) die "benchmark: unknown option $1" ;;
+    esac
+    shift
+  done
+  _r=$PREFIX/current
+  _app=$(image_tag "$_r" app)
+  _stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  _t=$(mktemp -d)
+  chmod 0755 "$_t"
+  step "benchmark: $_docs documents, $_clients at a time (each document is a new job)"
+  _token=$(compose "$_r" exec -T api python -m newgen_ocr.auth create --user ngocr-benchmark \
+    --role submitter --expires-days 1 </dev/null 2>/dev/null | tail -n 1)
+  _tid=$(printf '%s' "$_token" | cut -d _ -f 2)
+  printf '%s' "$_token" >"$_t/token"
+  chmod 0444 "$_t/token"
+  (
+    while :; do
+      $ENGINE stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}' 2>/dev/null
+      echo --
+      sleep 5
+    done
+  ) >"$_t/stats" &
+  _sampler=$!
+  _bind=$(site_value NGOCR_HTTPS_BIND)
+  [ "$_bind" = 0.0.0.0 ] && _bind=127.0.0.1
+  _rc=0
+  $ENGINE run --rm -i --network host --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --tmpfs /tmp -e HOME=/tmp \
+    -v "$_t/token:/run/smoke/token:ro" \
+    -v "$(site_value NGOCR_SECRETS_PATH)/tls/ca.crt:/run/smoke/ca.crt:ro" \
+    -v "$_r/scripts:/smoke:ro" \
+    "$_app" python - "$_bind" "$(site_value NGOCR_HTTPS_PORT)" "$(site_value NGOCR_TLS_HOSTNAME)" \
+    /run/smoke/ca.crt /run/smoke/token /smoke "$_docs" "$_clients" \
+    <"$_r/scripts/benchmark.py" >"$_t/bench.out" 2>&1 || _rc=1
+  kill "$_sampler" 2>/dev/null || true
+  compose "$_r" exec -T api python -m newgen_ocr.auth revoke "$_tid" </dev/null >/dev/null 2>&1 || true
+  tail -n 1 "$_t/bench.out" >"$_t/bench.json"
+  if [ "$_rc" != 0 ]; then
+    cat "$_t/bench.out"
+    rm -rf "$_t"
+    die "benchmark failed"
+  fi
+  # Read by the summary container's non-root user (this script runs with umask 077).
+  chmod 0444 "$_t/bench.json" "$_t/stats"
+  _cpu=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo | head -n 1)
+  _mem=$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo)
+  _out=$PREFIX/state/benchmark-$_stamp.json
+  $ENGINE run --rm -i --network none --read-only --cap-drop ALL -v "$_t:/bench:ro" "$_app" \
+    python - /bench "$_cpu" "$(getconf _NPROCESSORS_ONLN)" "$_mem" "$(current_release)" "$_stamp" \
+    <"$_r/scripts/benchmark_report.py" >"$_out" || die "benchmark report failed"
+  rm -rf "$_t"
+  record "benchmark $_stamp $(current_release)"
+  grep -E '"(pages_per_minute|latency_p50_s|latency_p95_s|queue_delay_p95_s|failure_rate)"' "$_out" | sed 's/^ */  /'
+  say "report: $_out (bring it back for the release gates)"
+}
+
 # ------------------------------------------------------------------ install and rollback
 switch_current() {
   ln -sfn "releases/$1" "$PREFIX/.current.new"
@@ -635,6 +703,7 @@ case $_cmd in
   rollback) cmd_rollback "$@" ;;
   create-admin) cmd_create_admin "$@" ;;
   prune) cmd_prune ;;
+  benchmark) cmd_benchmark "$@" ;;
   help | -h | --help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command $_cmd (try: ngocrctl help)" ;;
 esac

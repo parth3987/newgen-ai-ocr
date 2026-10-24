@@ -461,6 +461,54 @@ Open:
 - OD-50: the host firewall.
 - The first real bundle needs a clean, committed tree and the owner's key.
 
+## Phase 13: Accuracy, performance and release readiness (**complete**, 2026-10-24)
+
+Defined by the owner on 2026-10-24. The owner's choices:
+- commit Phase 12 first;
+- the performance benchmark is a kit run on the CPU server;
+- synthetic cohorts now, real documents later;
+- three 99% targets, provisional until measured on real documents;
+- handwriting is measured but not gated on accuracy.
+
+Delivered (ADR-0033; RELEASE_READINESS.md):
+- `evaluation/cohorts.json` and `newgen_ocr/evaluation/cohorts.py` (roles, kinds, separation);
+- `cohort_data.py` (seeded generators, missing-glyph check);
+- `release_metrics.py`;
+- `scripts/evaluate_release.py` (`make evaluate`);
+- `evaluation/targets.json`;
+- `scripts/release_gates.py` (`make release-gates`);
+- `ngocrctl benchmark` (`deploy/bundle/benchmark.py`, `benchmark_report.py`, the bundle's
+  benchmark set);
+- `evaluation/real/README.md`;
+- calibration refuses evaluation folders;
+- `tests/unit/test_release_evaluation.py`.
+
+| Required | Where |
+|---|---|
+| CER, WER | `text_errors` (micro); per cohort, language and condition |
+| Exact-match field accuracy; document-level exact match | `field_summary`, with invented values counted separately |
+| Table structure accuracy | `table_summary`: exact grid, adjacency F1, cell CER |
+| Auto-accept precision; manual-review rate | `review_summary`: precision with coverage, document auto-accept rate, manual-review rate |
+| Pages per minute; p50 and p95 latency | `performance_summary` (in-process) and `ngocrctl benchmark` (service, end to end) |
+| CPU and memory | CPU seconds per page and peak memory; each container's CPU % and peak memory in the benchmark |
+| Queue delay and failure rate | Benchmark (`started_at − created_at`; failed or timed-out jobs); failures per cohort in the evaluation |
+| Cohorts: clean, poor scans, tables, each printed language, each handwriting script, mixed language | 15 synthetic evaluation cohorts and 4 real ones (RELEASE_READINESS.md §2) |
+| Tuning and evaluation documents kept apart | File and truth-text hashes against 692 tuning documents; seeds unique; calibration refuses evaluation folders |
+
+| Acceptance criterion | Evidence | Status |
+|---|---|---|
+| Reports include dataset size, language, document type and test conditions | Every cohort report (and the gate `reporting`) | Met |
+| Any 99% target is tied to a defined metric and cohort | `evaluation/targets.json`: auto-accept precision on `real-documents`, field exact match on `real-clean-printed-documents`, character accuracy per language on `real-clean-printed-text`, each with a minimum sample | Met (provisional, owner's choice) |
+| The system reports both accuracy and automatic-processing coverage | Auto-accept precision is always reported with coverage and the manual-review rate | Met |
+| Performance targets are measured on the actual CPU server | Only a benchmark from the declared `reference_server` counts. The kit is built and rehearsed; the server is not yet declared (OD-53) | **Ready, not yet measured**: needs the owner's server run |
+| Release gates pass before production approval | `make release-gates` approves only when every blocking gate passes. Today it correctly reports NOT APPROVED (performance not measured; the provisional targets wait for real data) | Met (the gate works; approval is pending) |
+
+Found and fixed: a sparse handwriting page was skipped as blank and not routed to review
+(OD-56 records the remaining limit); English lines in mixed-script pages rendered as boxes
+(missing-glyph check); the benchmark's files were unreadable inside the summary container.
+
+Open: OD-53 to OD-56; real documents; the reference-server benchmark.
+
 ## Next (not yet defined by the owner)
 
 Carried forward from the earlier deployment plan, and from the open decisions:

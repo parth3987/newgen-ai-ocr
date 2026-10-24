@@ -4,6 +4,11 @@ Measured CPU performance. Every figure states its hardware and inputs. **None of
 measured on the target Ubuntu 24.04 server**; re-run on reference hardware before capacity
 planning (Phase 11).
 
+**Phase 13:** performance targets count only from the service benchmark on the declared
+production server (`ngocrctl benchmark`; [RELEASE_READINESS.md](RELEASE_READINESS.md)). The
+staging-laptop figures from the release evaluation and the install rehearsal are listed
+there and labelled with their host.
+
 ## How to reproduce
 
 ```bash

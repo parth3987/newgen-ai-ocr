@@ -12,6 +12,14 @@ scanned PDFs and handwriting recognition.
 
 ## Status
 
+Phase 13 (accuracy, performance and release readiness) is complete. Accuracy and
+automatic-processing coverage are measured on held-out cohorts that never share documents
+with tuning: clean, poor scans, tables, each language, handwriting and mixed language.
+Every result carries its sample size and confidence interval. A benchmark kit measures
+throughput, latency, queue delay, CPU and memory on the production server, and `make
+release-gates` approves a release only when every gate passes. The 99% targets are defined
+on real-document cohorts and wait for real data. See
+[RELEASE_READINESS](docs/RELEASE_READINESS.md).
 Phase 12 (offline installation bundle) is complete. `make staging` runs every check at a
 connected staging host and produces a signed bundle. It contains:
 - the images, by content ID;
@@ -117,6 +125,7 @@ Configuration: see [.env.example](.env.example).
 | [THREAT_MODEL](docs/THREAT_MODEL.md) | Data flows, trust boundaries, STRIDE per element |
 | [SECURITY_REVIEW](docs/SECURITY_REVIEW.md) | Scan results and manual reviews (Phase 11) |
 | [OFFLINE_DEPLOYMENT](docs/OFFLINE_DEPLOYMENT.md) | Staging, bundle and disconnected install |
+| [RELEASE_READINESS](docs/RELEASE_READINESS.md) | Evaluation cohorts, metrics, targets and release gates (Phase 13) |
 | [TESTING](docs/TESTING.md) | Test strategy and commands |
 | [ACCURACY_EVALUATION](docs/ACCURACY_EVALUATION.md) | Metrics and dataset rules |
 | [MODEL_INVENTORY](docs/MODEL_INVENTORY.md) | Models, hashes and licenses |

@@ -44,6 +44,7 @@ from newgen_ocr.api.app import create_app
 from newgen_ocr.config import Settings
 from newgen_ocr.evaluation.calibration_corpus import build, load_manifest
 from newgen_ocr.evaluation.client import authorized
+from newgen_ocr.evaluation.cohorts import load_registry, refuse_evaluation_data
 from newgen_ocr.extraction.models import ExtractionResult
 from newgen_ocr.extraction.schema import SchemaRegistry
 from newgen_ocr.review.calibration import (
@@ -63,6 +64,7 @@ from newgen_ocr.storage.local import DocumentStore
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "evaluation" / "calibration" / "generated"
+REGISTRY = ROOT / "evaluation" / "cohorts.json"
 OUT = ROOT / "reports" / "calibration"
 
 
@@ -207,6 +209,12 @@ def main() -> int:
             description="approved review items; truth is the approved value",
         )
     else:
+        if args.dataset is not None:
+            # ADR-0033: thresholds are tuning; never fit them on an evaluation cohort.
+            try:
+                refuse_evaluation_data(args.dataset, load_registry(REGISTRY), ROOT)
+            except ValueError as exc:
+                parser.error(str(exc))
         corpus = args.dataset or CORPUS
         if args.dataset is None and (args.rebuild or not (corpus / "manifest.json").is_file()):
             build(corpus, per_type=args.per_type)

@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+TEXT_DIR = ROOT / "evaluation" / "corpus" / "text"
 NAMESPACE = "newgen-ocr-bundle"  # ssh-keygen -Y signature namespace
 PRINCIPAL = "newgen-ocr-release"
 DEFAULT_KEY = Path.home() / ".config" / "newgen-ocr" / "bundle-signing" / "id_ed25519"
@@ -227,6 +228,44 @@ def write_smoke_sample(out: Path) -> None:
         raise BundleError(f"smoke sample has no truth for {missing}")
     Image.fromarray(image).save(out / "smoke-invoice.png", optimize=True)
     (out / "smoke-invoice.json").write_text(json.dumps(expected, indent=2) + "\n")
+
+
+# The service benchmark's documents (ADR-0033): a fixed mix, from a seed no tuning or
+# evaluation cohort uses. Generator, count, and its options.
+BENCHMARK_SET = (
+    ("business_documents", 1, {"document_types": ["gst_invoice", "receipt", "bank_statement",
+                                                  "pan_card", "aadhaar_card"],
+                               "conditions": ["clean", "scan"]}),
+    ("tables", 2, {"conditions": ["clean"]}),
+    ("printed_text", 1, {"languages": ["en", "hi", "mr", "te", "ta", "kn"],
+                         "conditions": ["scan"]}),
+)  # fmt: skip
+BENCHMARK_SEED = 20261141
+# Scripts that run inside containers on the production host (deploy/bundle/).
+PRODUCTION_SCRIPTS = (
+    "probe_egress.py",
+    "smoke_ocr.py",
+    "smoke_api.py",
+    "benchmark.py",
+    "benchmark_report.py",
+)
+
+
+def write_benchmark_set(out: Path) -> int:
+    """Render the benchmark documents as ``<language>-<id>.png`` (no truth: speed only)."""
+    from newgen_ocr.evaluation.cohort_data import GENERATORS
+
+    out.mkdir()
+    with tempfile.TemporaryDirectory() as tmp:
+        for n, (generator, count, options) in enumerate(BENCHMARK_SET):
+            folder = Path(tmp) / str(n)
+            folder.mkdir()
+            source = {"seed": BENCHMARK_SEED + n, "count": count, **options}
+            for record in GENERATORS[generator](folder, "benchmark", source, TEXT_DIR):
+                shutil.copy2(
+                    folder / f"{record.id}.png", out / f"{record.language}-{record.id}.png"
+                )
+    return len(list(out.glob("*.png")))
 
 
 def sign(key: Path, path: Path) -> Path:
@@ -492,10 +531,11 @@ class Builder:
         shutil.copy2(ROOT / "deploy/bundle/ngocrctl", bundle / "ngocrctl")
         shutil.copy2(ROOT / "deploy/bundle/INSTALL.md", bundle / "INSTALL.md")
         (bundle / "scripts").mkdir()
-        for script in ("probe_egress.py", "smoke_ocr.py", "smoke_api.py"):
+        for script in PRODUCTION_SCRIPTS:
             shutil.copy2(ROOT / "deploy/bundle" / script, bundle / "scripts" / script)
         shutil.copy2(ROOT / "scripts/fetch_models.py", bundle / "scripts/fetch_models.py")
         write_smoke_sample(bundle / "scripts")
+        write_benchmark_set(bundle / "scripts" / "benchmark")
 
         # Models (also inside the image; checked against each other at install).
         shutil.copytree(ROOT / "models", bundle / "models", ignore=shutil.ignore_patterns(".*"))
@@ -524,6 +564,11 @@ class Builder:
         (bundle / "evidence").mkdir()
         for report in ("trivy-image.json", "offline-test.json", "pytest.xml"):
             shutil.copy2(ROOT / self.args.reports / report, bundle / "evidence" / report)
+        # The release evaluation (ADR-0033), when staging ran it: accuracy and coverage per
+        # cohort, for the site to read beside the benchmark it runs itself.
+        evaluation = ROOT / self.args.reports / "evaluation" / "summary.json"
+        if evaluation.is_file():
+            shutil.copy2(evaluation, bundle / "evidence" / "evaluation-summary.json")
         docs = bundle / "docs"
         docs.mkdir()
         for doc in (
